@@ -8,7 +8,7 @@
 #include <thread>
 
 #define STB_SPRINTF_IMPLEMENTATION
-#include "stb_sprintf.h"
+#include "external/stb_sprintf.h"
 
 static char global_temp_buf[8192];
 
@@ -23,7 +23,7 @@ FILE *os_launch_process(char const *cmd_line)
   return result;
 }
 
-// NOTE(loki): This doesn't work.
+// TODO(loki): This doesn't work.
 void os_kill_process(FILE *process)
 {
 #ifdef _WIN32

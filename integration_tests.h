@@ -7,7 +7,7 @@
 #include <assert.h>
 
 #include "external/shoom.h"
-#include "stb_sprintf.h"
+#include "external/stb_sprintf.h"
 
 #define LOKI_ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOKI_CHAR_COUNT(array) (LOKI_ARRAY_COUNT(array) - 1)

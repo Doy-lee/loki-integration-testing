@@ -66,4 +66,7 @@ void             write_to_stdin_mem               (shared_mem_type type, char co
 loki_scratch_buf read_from_stdout_mem             (shared_mem_type type);
 loki_scratch_buf write_to_stdin_mem_and_get_result(shared_mem_type type, char const *cmd, int cmd_len = -1);
 
+wallet_t create_wallet();
+void     start_wallet(wallet_t *wallet);
+
 #endif // LOKI_INTEGRATION_TEST_H

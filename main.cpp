@@ -143,7 +143,6 @@ wallet_t create_wallet()
   result.id          = global_state.num_wallets++;
   stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet Bin/wallet_%d --testnet --password '' --mnemonic-language English save", result.id);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
-  result.proc_handle = os_launch_process(cmd_buf);
   return result;
 }
 
@@ -157,26 +156,18 @@ void start_wallet(wallet_t *wallet)
 
 void reset_testing_framework()
 {
-  global_state.daemon_stdin_shared_mem.Create();
-  global_state.daemon_stdout_shared_mem.Create();
-  global_state.wallet_stdin_shared_mem.Create();
-  global_state.wallet_stdout_shared_mem.Create();
-
-  global_state.wallet_stdin_shared_mem.Data()[0]  = 0;
-  global_state.wallet_stdout_shared_mem.Data()[0] = 0;
-  global_state.daemon_stdin_shared_mem.Data()[0]  = 0;
-  global_state.daemon_stdout_shared_mem.Data()[0] = 0;
-
-  global_state.wallet_stdout_shared_mem.Open();
-  global_state.daemon_stdout_shared_mem.Open();
+  global_state.daemon_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
+  global_state.wallet_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
+  global_state.daemon_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
+  global_state.wallet_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
   printf("Shared memory reset! Integration test framework starting.\n");
 }
 
+#include <iostream>
 int main(int, char **)
 {
   reset_testing_framework();
   daemon_t daemon = start_daemon();
-
   // TODO(doyle): Give enough time for daemon/wallet to start up and see that
   // the shared_mem_region has been zeroed out. Otherwise this will power on
   // forward and write to stdin before it initialises, and then the daemon will
@@ -188,12 +179,13 @@ int main(int, char **)
   for (;;line.clear())
   {
     std::getline(std::cin, line);
-    loki_scratch_buf result = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, line.c_str(), line.size());
+    loki_scratch_buf result = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, line.c_str(), line.size());
     printf("%s\n", result.data);
   }
 #else
-  prepare_registration__solo_auto_stake().print_result();
-  prepare_registration__100_percent_operator_cut_auto_stake().print_result();
+  // prepare_registration__solo_auto_stake().print_result();
+  //prepare_registration__100_percent_operator_cut_auto_stake().print_result();
+  stake__from_subaddress().print_result();
 #endif
 
   write_to_stdin_mem(shared_mem_type::daemon, "exit");

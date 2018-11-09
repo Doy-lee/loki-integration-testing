@@ -1,5 +1,8 @@
 #include "test_cases.h"
 
+#include <chrono>
+#include <thread>
+
 inline bool char_is_alpha(char ch)
 {
   bool result = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
@@ -123,26 +126,24 @@ if (!str_match(src, expect_str)) \
   test_result_var.failed = true; \
   test_result_var.received_str = loki_buffer<1024>(src, (int)strlen(expect_str)); \
   test_result_var.expected_str = expect_str; \
-  break; \
+  return test_result_var; \
 }
 
 test_result prepare_registration__solo_auto_stake()
 {
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
 
-  loki_buffer<8192> output = {};
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Contribute entire stake?
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet1); // Operator address
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Auto restake?
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm information correct?
+  test_result result = {};
+  result.name        = __func__;
 
-  test_result result     = {};
-  result.name            = __func__;
-  result.captured_stdout = output;
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Contribute entire stake?
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet1); // Operator address
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Auto restake?
+  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm information correct?
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str      = str_find(&output, "register_service_node");
+  char const *register_str      = str_find(&result.captured_stdout, "register_service_node");
   char const *prev              = register_str;
 
   char const *auto_stake        = str_skip_to_next_word(&prev);
@@ -150,15 +151,11 @@ test_result prepare_registration__solo_auto_stake()
   char const *wallet_addr       = str_skip_to_next_word(&prev);
   char const *addr1_portions    = str_skip_to_next_word(&prev);
 
-  for(;;)
-  {
-    STR_EXPECT(result, register_str,      "register_service_node");
-    STR_EXPECT(result, auto_stake,        "auto");
-    STR_EXPECT(result, operator_portions, "18446744073709551612");
-    STR_EXPECT(result, wallet_addr,       wallet1);
-    STR_EXPECT(result, addr1_portions,    "18446744073709551612");
-    break;
-  }
+  STR_EXPECT(result, register_str,      "register_service_node");
+  STR_EXPECT(result, auto_stake,        "auto");
+  STR_EXPECT(result, operator_portions, "18446744073709551612");
+  STR_EXPECT(result, wallet_addr,       wallet1);
+  STR_EXPECT(result, addr1_portions,    "18446744073709551612");
 
   return result;
 }
@@ -168,26 +165,23 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
   char const wallet2[] = "T6TZgnpJ2uaC1cqS4E6M6u7QmGA79q2G19ToBHnqWHxMMDocNTiw2phg52XjkAmEZH9V5xQUsaR3cbcTnELE1vXP2YkhEqXad";
 
-  loki_buffer<8192> output = {};
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n"); // Contribute entire stake?
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "100%"); // Percentage stake
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "50"); // How much loki to reserve?
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Do you want to reserve portions of the stake for other contribs?
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "1"); // Number of additional contributors
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet1); // Operator address
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "25"); // How much loki to reserve for contributor 1
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet2); // Contrib 1 address
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // How much loki to reserve for contributor 1
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Autostake
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
-
   test_result result     = {};
   result.name            = __func__;
-  result.captured_stdout = output;
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n"); // Contribute entire stake?
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "100%"); // Percentage stake
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "50"); // How much loki to reserve?
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Do you want to reserve portions of the stake for other contribs?
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "1"); // Number of additional contributors
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet1); // Operator address
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "25"); // How much loki to reserve for contributor 1
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet2); // Contrib 1 address
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // How much loki to reserve for contributor 1
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Autostake
+  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str     = str_find(&output, "register_service_node");
+  char const *register_str     = str_find(&result.captured_stdout, "register_service_node");
   char const *prev             = register_str;
 
   char const *auto_stake       = str_skip_to_next_word(&prev);
@@ -197,21 +191,31 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   char const *wallet2_addr     = str_skip_to_next_word(&prev);
   char const *wallet2_portions = str_skip_to_next_word(&prev);
 
-  for(;;)
-  {
-    STR_EXPECT(result, register_str,     "register_service_node");
-    STR_EXPECT(result, auto_stake,       "auto");
-    STR_EXPECT(result, operator_cut,     "18446744073709551612");
-    STR_EXPECT(result, wallet1_addr,     wallet1);
-    STR_EXPECT(result, wallet1_portions, "9223372036854775806"); // exactly 50% of staking portions
-    STR_EXPECT(result, wallet2_addr,     wallet2);
-    STR_EXPECT(result, wallet2_portions, "4611686018427387903"); // exactly 25% of staking portions
-    break;
-  }
+  STR_EXPECT(result, register_str,     "register_service_node");
+  STR_EXPECT(result, auto_stake,       "auto");
+  STR_EXPECT(result, operator_cut,     "18446744073709551612");
+  STR_EXPECT(result, wallet1_addr,     wallet1);
+  STR_EXPECT(result, wallet1_portions, "9223372036854775806"); // exactly 50% of staking portions
+  STR_EXPECT(result, wallet2_addr,     wallet2);
+  STR_EXPECT(result, wallet2_portions, "4611686018427387903"); // exactly 25% of staking portions
 
   return result;
 }
 
 test_result stake__from_subaddress()
 {
+  wallet_t operator_wallet = create_wallet();
+  // wallet_t stakers_wallet  = create_wallet();
+  start_wallet(&operator_wallet);
+  std::this_thread::sleep_for(std::chrono::milliseconds(2 * 1000));
+
+  test_result result     = {};
+  result.name            = __func__;
+  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "start_mining");
+  STR_EXPECT(result, result.captured_stdout.data, "Mining started in daemon");
+  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "set refresh-from-block-height 0");
+  printf("%s\n", write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "refresh").data);
+  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "exit");
+
+  return result;
 }

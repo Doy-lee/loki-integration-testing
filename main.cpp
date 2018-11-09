@@ -43,18 +43,19 @@ char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code
 
 static state_t global_state;
 
+uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
 static void make_message(char *msg_buf, int msg_buf_len, char const *msg_data, int msg_data_len)
 {
   uint64_t timestamp = time(nullptr);
-  int total_len      = static_cast<int>(sizeof(timestamp) + sizeof(CONFIRM_READ_MAGIC_BYTES) + msg_data_len);
+  int total_len      = static_cast<int>(sizeof(timestamp) + sizeof(MSG_MAGIC_BYTES) + msg_data_len);
   assert(total_len < msg_buf_len);
 
   char *ptr = msg_buf;
   memcpy(ptr, &timestamp, sizeof(timestamp));
   ptr += sizeof(timestamp);
 
-  memcpy(ptr, (char *)&CONFIRM_READ_MAGIC_BYTES, sizeof(CONFIRM_READ_MAGIC_BYTES));
-  ptr += sizeof(CONFIRM_READ_MAGIC_BYTES);
+  memcpy(ptr, (char *)&MSG_MAGIC_BYTES, sizeof(MSG_MAGIC_BYTES));
+  ptr += sizeof(MSG_MAGIC_BYTES);
 
   memcpy(ptr, msg_data, msg_data_len);
   ptr += sizeof(msg_data);
@@ -68,10 +69,10 @@ static char const *parse_message(char const *msg_buf, int msg_buf_len, uint64_t 
   *timestamp = *((uint64_t const *)ptr);
   ptr += sizeof(*timestamp);
 
-  if ((*(uint32_t const *)ptr) != CONFIRM_READ_MAGIC_BYTES)
+  if ((*(uint32_t const *)ptr) != MSG_MAGIC_BYTES)
     return nullptr;
 
-  ptr += sizeof(CONFIRM_READ_MAGIC_BYTES);
+  ptr += sizeof(MSG_MAGIC_BYTES);
   assert(ptr < msg_buf + msg_buf_len);
   return ptr;
 }
@@ -127,7 +128,7 @@ daemon_t start_daemon()
   result.p2p_port     = global_state.free_p2p_port++;
   result.rpc_port     = global_state.free_rpc_port++;
   result.zmq_rpc_port = global_state.free_zmq_rpc_port++;
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--testnet --p2p-bind-port %d --rpc-bind-port %d --zmq-rpc-bind-port %d --data-dir Bin/daemon%d --offline --service-node", 
+  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--testnet --p2p-bind-port %d --rpc-bind-port %d --zmq-rpc-bind-port %d --data-dir Bin/daemon%d --offline --service-node --fixed-difficulty 25",
                  result.p2p_port, result.rpc_port, result.zmq_rpc_port, global_state.num_daemons++);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_CMD_FMT, arg_buf);
 
@@ -135,77 +136,45 @@ daemon_t start_daemon()
   return result;
 }
 
-wallet_t start_wallet()
+wallet_t create_wallet()
 {
   char arg_buf[1024], cmd_buf[1024];
-
-  wallet_t result      = {};
+  wallet_t result    = {};
   result.id          = global_state.num_wallets++;
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet Bin/test%d --testnet --password '' --mnemonic-language English", result.id);
+  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet Bin/wallet_%d --testnet --password '' --mnemonic-language English save", result.id);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
   result.proc_handle = os_launch_process(cmd_buf);
   return result;
 }
 
-enum struct shared_mem_create { yes, no };
-void init_shared_mem(shoom::Shm *shared_mem, shared_mem_create create)
+void start_wallet(wallet_t *wallet)
 {
-  if (create == shared_mem_create::yes)
-  {
-    assert(shared_mem->Create() == 0);
-    shared_mem->Data()[0] = 0;
-  }
-  else
-  {
-    bool create_once_only   = true;
-    bool old_data_once_only = true;
+  char arg_buf[1024], cmd_buf[1024];
+  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--wallet-file Bin/wallet_%d --testnet --password '' --mnemonic-language English", wallet->id);
+  stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
+  wallet->proc_handle = os_launch_process(cmd_buf);
+}
 
-    for (;
-         shared_mem->Open() != 0;
-         std::this_thread::sleep_for(std::chrono::milliseconds(1 * 1000)))
-    {
-      if (create_once_only)
-      {
-        create_once_only = false;
-        printf("Shared memory at: %s not created yet, blocking until companion program initialises it.\n", shared_mem->Path().c_str());
-      }
-    }
+void reset_testing_framework()
+{
+  global_state.daemon_stdin_shared_mem.Create();
+  global_state.daemon_stdout_shared_mem.Create();
+  global_state.wallet_stdin_shared_mem.Create();
+  global_state.wallet_stdout_shared_mem.Create();
 
-    for (;
-         shared_mem->Data()[0];
-         std::this_thread::sleep_for(std::chrono::milliseconds(1 * 1000)), shared_mem->Open())
-    {
-      if (old_data_once_only)
-      {
-        old_data_once_only = false;
-        printf("Shared memory at: %s still has remnant data: %s, blocking until companion program clears it out.\n", shared_mem->Path().c_str(), (char *)shared_mem->Data());
-      }
-    }
-  }
+  global_state.wallet_stdin_shared_mem.Data()[0]  = 0;
+  global_state.wallet_stdout_shared_mem.Data()[0] = 0;
+  global_state.daemon_stdin_shared_mem.Data()[0]  = 0;
+  global_state.daemon_stdout_shared_mem.Data()[0] = 0;
+
+  global_state.wallet_stdout_shared_mem.Open();
+  global_state.daemon_stdout_shared_mem.Open();
+  printf("Shared memory reset! Integration test framework starting.\n");
 }
 
 int main(int, char **)
 {
-  shoom::Shm shared_mem_regions[] =
-  {
-    shoom::Shm("loki_integration_testing_wallet_stdout", 8192),
-    shoom::Shm("loki_integration_testing_wallet_stdin",  8192),
-    shoom::Shm("loki_integration_testing_daemon_stdout", 8192),
-    shoom::Shm("loki_integration_testing_daemon_stdin",  8192),
-  };
-
-  for (size_t i = 0; i < LOKI_ARRAY_COUNT(shared_mem_regions); ++i)
-  {
-    shared_mem_regions[i].Create();
-    shared_mem_regions[i].Data()[0] = 0;
-  }
-
-  init_shared_mem(&global_state.wallet_stdout_shared_mem, shared_mem_create::no);
-  init_shared_mem(&global_state.daemon_stdout_shared_mem, shared_mem_create::no);
-  init_shared_mem(&global_state.wallet_stdin_shared_mem, shared_mem_create::yes);
-  init_shared_mem(&global_state.daemon_stdin_shared_mem, shared_mem_create::yes);
-  printf("Shared memory initialised! Integration test framework starting.\n");
-
+  reset_testing_framework();
   daemon_t daemon = start_daemon();
 
   // TODO(doyle): Give enough time for daemon/wallet to start up and see that
@@ -213,7 +182,6 @@ int main(int, char **)
   // forward and write to stdin before it initialises, and then the daemon will
   // block waiting for it to be cleared out before proceeding.
   std::this_thread::sleep_for(std::chrono::milliseconds(2 * 1000));
-
   printf("\n");
 #if 0
   std::string line;
@@ -229,5 +197,6 @@ int main(int, char **)
 #endif
 
   write_to_stdin_mem(shared_mem_type::daemon, "exit");
+  write_to_stdin_mem(shared_mem_type::wallet, "exit");
   return 0;
 }

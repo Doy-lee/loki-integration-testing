@@ -211,3 +211,7 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
 
   return result;
 }
+
+test_result stake__from_subaddress()
+{
+}

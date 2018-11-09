@@ -17,5 +17,6 @@ struct test_result
 
 test_result prepare_registration__solo_auto_stake                    ();
 test_result prepare_registration__100_percent_operator_cut_auto_stake();
+test_result stake__from_subaddress();
 
 #endif // LOKI_TEST_CASES_H

@@ -15,9 +15,8 @@
 
 struct state_t
 {
-    int num_wallets = 0;
-    int num_daemons = 0;
-
+    int num_wallets       = 0;
+    int num_daemons       = 0;
     int free_p2p_port     = 1111;
     int free_rpc_port     = 2222;
     int free_zmq_rpc_port = 3333;
@@ -47,8 +46,6 @@ struct wallet_t
     uint64_t balance;
     uint64_t unlocked_balance;
 };
-
-uint32_t const CONFIRM_READ_MAGIC_BYTES = 0x7428da3f;
 
 template <int MAX>
 struct loki_buffer

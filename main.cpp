@@ -123,11 +123,15 @@ loki_scratch_buf write_to_stdin_mem_and_get_result(shared_mem_type type, char co
 
 daemon_t start_daemon()
 {
+  static int p2p_port = 1111;
+  static int rpc_port = 2222;
+  static int zmq_port = 3333;
+
   char arg_buf[1024], cmd_buf[1024];
   daemon_t result     = {};
-  result.p2p_port     = global_state.free_p2p_port++;
-  result.rpc_port     = global_state.free_rpc_port++;
-  result.zmq_rpc_port = global_state.free_zmq_rpc_port++;
+  result.p2p_port     = p2p_port++;
+  result.rpc_port     = rpc_port++;
+  result.zmq_rpc_port = zmq_port++;
   stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--testnet --p2p-bind-port %d --rpc-bind-port %d --zmq-rpc-bind-port %d --data-dir Bin/daemon%d --offline --service-node --fixed-difficulty 25",
                  result.p2p_port, result.rpc_port, result.zmq_rpc_port, global_state.num_daemons++);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_CMD_FMT, arg_buf);
@@ -138,9 +142,10 @@ daemon_t start_daemon()
 
 wallet_t create_wallet()
 {
+  static int wallet_id;
   char arg_buf[1024], cmd_buf[1024];
   wallet_t result    = {};
-  result.id          = global_state.num_wallets++;
+  result.id          = wallet_id++;
   stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet Bin/wallet_%d --testnet --password '' --mnemonic-language English save", result.id);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
   return result;
@@ -154,7 +159,7 @@ void start_wallet(wallet_t *wallet)
   wallet->proc_handle = os_launch_process(cmd_buf);
 }
 
-void reset_testing_framework()
+void reset_shared_memory()
 {
   global_state.daemon_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
   global_state.wallet_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
@@ -166,13 +171,6 @@ void reset_testing_framework()
 #include <iostream>
 int main(int, char **)
 {
-  reset_testing_framework();
-  daemon_t daemon = start_daemon();
-  // TODO(doyle): Give enough time for daemon/wallet to start up and see that
-  // the shared_mem_region has been zeroed out. Otherwise this will power on
-  // forward and write to stdin before it initialises, and then the daemon will
-  // block waiting for it to be cleared out before proceeding.
-  std::this_thread::sleep_for(std::chrono::milliseconds(2 * 1000));
   printf("\n");
 #if 0
   std::string line;

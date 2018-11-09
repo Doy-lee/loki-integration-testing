@@ -129,12 +129,14 @@ if (!str_match(src, expect_str)) \
   return test_result_var; \
 }
 
+#define INITIALISE_TEST_CONTEXT(test_result_var) reset_shared_memory(); test_result_var.name = loki_buffer<512>(__func__)
+
 test_result prepare_registration__solo_auto_stake()
 {
-  char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
-
   test_result result = {};
-  result.name        = __func__;
+  INITIALISE_TEST_CONTEXT(result);
+
+  char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
 
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Contribute entire stake?
@@ -162,11 +164,13 @@ test_result prepare_registration__solo_auto_stake()
 
 test_result prepare_registration__100_percent_operator_cut_auto_stake()
 {
+
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
   char const wallet2[] = "T6TZgnpJ2uaC1cqS4E6M6u7QmGA79q2G19ToBHnqWHxMMDocNTiw2phg52XjkAmEZH9V5xQUsaR3cbcTnELE1vXP2YkhEqXad";
 
-  test_result result     = {};
-  result.name            = __func__;
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n"); // Contribute entire stake?
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "100%"); // Percentage stake
@@ -204,13 +208,16 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
 
 test_result stake__from_subaddress()
 {
-  wallet_t operator_wallet = create_wallet();
-  // wallet_t stakers_wallet  = create_wallet();
-  start_wallet(&operator_wallet);
-  std::this_thread::sleep_for(std::chrono::milliseconds(2 * 1000));
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
 
-  test_result result     = {};
-  result.name            = __func__;
+  daemon_t daemon          = start_daemon();
+  wallet_t operator_wallet = create_wallet();
+  start_wallet(&operator_wallet);
+
+  // wallet_t stakers_wallet  = create_wallet();
+
+  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("set_daemon 127.0.0.1:%d", daemon.rpc_port).data);
   result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "start_mining");
   STR_EXPECT(result, result.captured_stdout.data, "Mining started in daemon");
   write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "set refresh-from-block-height 0");

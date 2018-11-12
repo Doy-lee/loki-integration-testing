@@ -41,6 +41,7 @@ char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code
 char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
 #endif
 
+const int POLL_SHARED_MEM_SLEEP_MS = 500;
 static state_t global_state;
 
 uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
@@ -83,28 +84,37 @@ void write_to_stdin_mem(shared_mem_type type, char const *cmd, int cmd_len)
 
   if (cmd_len == -1) cmd_len = static_cast<int>(strlen(cmd));
   assert(cmd_len < shared_mem->Size());
+
   make_message((char *)shared_mem->Data(), shared_mem->Size(), cmd, cmd_len);
+  std::this_thread::sleep_for(std::chrono::milliseconds(POLL_SHARED_MEM_SLEEP_MS));
 }
 
 loki_scratch_buf read_from_stdout_mem(shared_mem_type type)
 {
-  static uint64_t last_timestamp = 0;
+  static uint64_t wallet_last_timestamp = 0;
+  static uint64_t daemon_last_timestamp = 0;
+
+  uint64_t *last_timestamp       = nullptr;
   uint64_t timestamp             = 0;
   char const *output             = nullptr;
 
   shoom::Shm *shared_mem = (type == shared_mem_type::wallet) ? &global_state.wallet_stdout_shared_mem : &global_state.daemon_stdout_shared_mem;
+
+  if (type == shared_mem_type::wallet) last_timestamp = &wallet_last_timestamp;
+  else                                 last_timestamp = &daemon_last_timestamp;
+
   for(;;)
   {
+    std::this_thread::sleep_for(std::chrono::milliseconds(POLL_SHARED_MEM_SLEEP_MS));
+
     shared_mem->Open();
     char *data = reinterpret_cast<char *>(shared_mem->Data());
     output = parse_message(data, shared_mem->Size(), &timestamp);
-    if (output && last_timestamp != timestamp)
+    if (output && (*last_timestamp) != timestamp)
     {
-      last_timestamp = timestamp;
+      (*last_timestamp) = timestamp;
       break;
     }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(1 * 1000));
   }
 
   loki_scratch_buf result = {};
@@ -132,11 +142,12 @@ daemon_t start_daemon()
   result.p2p_port     = p2p_port++;
   result.rpc_port     = rpc_port++;
   result.zmq_rpc_port = zmq_port++;
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--testnet --p2p-bind-port %d --rpc-bind-port %d --zmq-rpc-bind-port %d --data-dir Bin/daemon%d --offline --service-node --fixed-difficulty 25",
+  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--testnet --p2p-bind-port %d --rpc-bind-port %d --zmq-rpc-bind-port %d --data-dir bin/daemon%d --offline --service-node --fixed-difficulty 25",
                  result.p2p_port, result.rpc_port, result.zmq_rpc_port, global_state.num_daemons++);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_CMD_FMT, arg_buf);
 
   result.proc_handle = os_launch_process(cmd_buf);
+  reset_shared_memory(reset_type::daemon);
   return result;
 }
 
@@ -146,26 +157,42 @@ wallet_t create_wallet()
   char arg_buf[1024], cmd_buf[1024];
   wallet_t result    = {};
   result.id          = wallet_id++;
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet Bin/wallet_%d --testnet --password '' --mnemonic-language English save", result.id);
+  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet bin/wallet_%d --testnet --password '' --mnemonic-language English save", result.id);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
+  os_launch_process(cmd_buf);
+  reset_shared_memory(reset_type::wallet);
   return result;
 }
 
 void start_wallet(wallet_t *wallet)
 {
   char arg_buf[1024], cmd_buf[1024];
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--wallet-file Bin/wallet_%d --testnet --password '' --mnemonic-language English", wallet->id);
+  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--wallet-file bin/wallet_%d --testnet --password '' --mnemonic-language English", wallet->id);
   stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
   wallet->proc_handle = os_launch_process(cmd_buf);
+  reset_shared_memory(reset_type::wallet);
 }
 
-void reset_shared_memory()
+void reset_shared_memory(reset_type type)
 {
-  global_state.daemon_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
-  global_state.wallet_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
-  global_state.daemon_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
-  global_state.wallet_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
-  printf("Shared memory reset! Integration test framework starting.\n");
+  if (type == reset_type::all || type == reset_type::daemon)
+  {
+    global_state.daemon_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
+    global_state.daemon_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
+    global_state.daemon_stdout_shared_mem.Open();
+  }
+
+  if (type == reset_type::all || type == reset_type::wallet)
+  {
+    global_state.wallet_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
+    global_state.wallet_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
+    global_state.wallet_stdout_shared_mem.Open();
+  }
+
+  // TODO(doyle): This is a workaround, for some reason if I start trying to use
+  // this shared memory too quick(?) The daemon/wallet isn't able to see that it
+  // was initialised.
+  std::this_thread::sleep_for(std::chrono::milliseconds(1 * 1000));
 }
 
 #include <iostream>

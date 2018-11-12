@@ -217,10 +217,11 @@ test_result stake__from_subaddress()
 
   // wallet_t stakers_wallet  = create_wallet();
 
+  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("refresh").data);
+  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("set ask-password 0").data);
   result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("set_daemon 127.0.0.1:%d", daemon.rpc_port).data);
   result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "start_mining");
   STR_EXPECT(result, result.captured_stdout.data, "Mining started in daemon");
-  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "set refresh-from-block-height 0");
   printf("%s\n", write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "refresh").data);
   write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "exit");
 

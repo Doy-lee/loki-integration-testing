@@ -68,10 +68,7 @@ class Shm {
 #include <sys/mman.h>  // mmap, munmap
 #include <sys/stat.h>  // for mode constants
 #include <unistd.h>    // unlink
-
-#if defined(__APPLE__)
 #include <errno.h>
-#endif // __APPLE__
 
 #include <stdexcept>
 
@@ -111,6 +108,7 @@ ShoomError Shm::CreateOrOpen(int flag) {
 
   fd_ = shm_open(path_.c_str(), flags, 0755);
   if (fd_ < 0) {
+    int error_value = errno;
     if (flag != 0) {
       return kErrorCreationFailed;
     } else {
@@ -145,9 +143,9 @@ ShoomError Shm::CreateOrOpen(int flag) {
 }
 
 Shm::~Shm() {
-  munmap(data_, size_);
-  close(fd_);
-  shm_unlink(path_.c_str());
+  // munmap(data_, size_);
+  // close(fd_);
+  // shm_unlink(path_.c_str());
 }
 
 }  // namespace shoom

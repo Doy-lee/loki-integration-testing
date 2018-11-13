@@ -131,45 +131,77 @@ loki_scratch_buf write_to_stdin_mem_and_get_result(shared_mem_type type, char co
   return result;
 }
 
+void os_sleep_ms(int ms)
+{
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
+bool os_file_delete(char const *path)
+{
+#if defined(_WIN32)
+    bool result = DeleteFileA(path);
+#else
+    bool result = (unlink(path) == 0);
+#endif
+    return result;
+}
+
 daemon_t start_daemon()
 {
   static int p2p_port = 1111;
   static int rpc_port = 2222;
   static int zmq_port = 3333;
 
-  char arg_buf[1024], cmd_buf[1024];
   daemon_t result     = {};
   result.p2p_port     = p2p_port++;
   result.rpc_port     = rpc_port++;
   result.zmq_rpc_port = zmq_port++;
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--testnet --p2p-bind-port %d --rpc-bind-port %d --zmq-rpc-bind-port %d --data-dir bin/daemon%d --offline --service-node --fixed-difficulty 25",
-                 result.p2p_port, result.rpc_port, result.zmq_rpc_port, global_state.num_daemons++);
-  stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_CMD_FMT, arg_buf);
 
-  result.proc_handle = os_launch_process(cmd_buf);
+  loki_scratch_buf arg_buf = {};
+  arg_buf.append("--testnet ");
+  arg_buf.append("--p2p-bind-port %d ",             result.p2p_port);
+  arg_buf.append("--rpc-bind-port %d ",             result.rpc_port);
+  arg_buf.append("--zmq-rpc-bind-port %d ",         result.zmq_rpc_port);
+  arg_buf.append("--data-dir ./daemons/daemon_%d ", global_state.num_daemons++);
+  arg_buf.append("--offline ");
+  arg_buf.append("--service-node ");
+  arg_buf.append("--fixed-difficulty 25 ");
+
+  loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
+  result.proc_handle = os_launch_process(cmd_buf.data);
   reset_shared_memory(reset_type::daemon);
   return result;
 }
 
 wallet_t create_wallet()
 {
-  static int wallet_id;
-  char arg_buf[1024], cmd_buf[1024];
   wallet_t result    = {};
-  result.id          = wallet_id++;
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--generate-new-wallet bin/wallet_%d --testnet --password '' --mnemonic-language English save", result.id);
-  stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
-  os_launch_process(cmd_buf);
+  result.id          = global_state.num_daemons++;
+
+  loki_scratch_buf arg_buf = {};
+  arg_buf.append("--testnet ");
+  arg_buf.append("--generate-new-wallet ./wallets/wallet_%d ", result.id);
+  arg_buf.append("--password '' ");
+  arg_buf.append("--mnemonic-language English ");
+  arg_buf.append("save ");
+
+  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
+  os_launch_process(cmd_buf.data);
+  os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init, save and close.
   reset_shared_memory(reset_type::wallet);
   return result;
 }
 
 void start_wallet(wallet_t *wallet)
 {
-  char arg_buf[1024], cmd_buf[1024];
-  stbsp_snprintf(arg_buf, LOKI_ARRAY_COUNT(arg_buf), "--wallet-file bin/wallet_%d --testnet --password '' --mnemonic-language English", wallet->id);
-  stbsp_snprintf(cmd_buf, LOKI_ARRAY_COUNT(cmd_buf), LOKI_WALLET_CMD_FMT, arg_buf);
-  wallet->proc_handle = os_launch_process(cmd_buf);
+  loki_scratch_buf arg_buf = {};
+  arg_buf.append("--testnet ");
+  arg_buf.append("--wallet-file ./wallets/wallet_%d ", wallet->id);
+  arg_buf.append("--password '' ");
+  arg_buf.append("--mnemonic-language English ");
+
+  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
+  wallet->proc_handle = os_launch_process(cmd_buf.data);
   reset_shared_memory(reset_type::wallet);
 }
 

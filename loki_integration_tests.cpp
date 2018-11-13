@@ -1,5 +1,5 @@
-#include "integration_tests.h"
-#include "test_cases.h"
+#include "loki_integration_tests.h"
+#include "loki_test_cases.h"
 
 #define SHOOM_IMPLEMENTATION
 #include "external/shoom.h"
@@ -93,26 +93,29 @@ loki_scratch_buf read_from_stdout_mem(shared_mem_type type)
 {
   static uint64_t wallet_last_timestamp = 0;
   static uint64_t daemon_last_timestamp = 0;
-
-  uint64_t *last_timestamp       = nullptr;
-  uint64_t timestamp             = 0;
-  char const *output             = nullptr;
+  static loki_scratch_buf last_output   = {};
+  uint64_t *last_timestamp = nullptr;
 
   shoom::Shm *shared_mem = (type == shared_mem_type::wallet) ? &global_state.wallet_stdout_shared_mem : &global_state.daemon_stdout_shared_mem;
 
   if (type == shared_mem_type::wallet) last_timestamp = &wallet_last_timestamp;
   else                                 last_timestamp = &daemon_last_timestamp;
 
-  for(;;)
+  char const *output       = nullptr;
+  for(uint64_t timestamp = 0;; timestamp = 0)
   {
     std::this_thread::sleep_for(std::chrono::milliseconds(POLL_SHARED_MEM_SLEEP_MS));
-
     shared_mem->Open();
+
+    // NOTE: If commands are completed quickly the timestamps may still be the same.
+    // TODO(doyle): We should just do an atomic cmd count variable
+
     char *data = reinterpret_cast<char *>(shared_mem->Data());
     output = parse_message(data, shared_mem->Size(), &timestamp);
-    if (output && (*last_timestamp) != timestamp)
+    if (output && ((*last_timestamp) != timestamp || strcmp(output, last_output.c_str) != 0))
     {
       (*last_timestamp) = timestamp;
+      last_output       = output;
       break;
     }
   }
@@ -129,6 +132,11 @@ loki_scratch_buf write_to_stdin_mem_and_get_result(shared_mem_type type, char co
   write_to_stdin_mem(type, cmd, cmd_len);
   loki_scratch_buf result = read_from_stdout_mem(type);
   return result;
+}
+
+void os_sleep_s(int seconds)
+{
+  std::this_thread::sleep_for(std::chrono::milliseconds(seconds * 1000));
 }
 
 void os_sleep_ms(int ms)
@@ -162,10 +170,10 @@ daemon_t start_daemon()
   arg_buf.append("--p2p-bind-port %d ",             result.p2p_port);
   arg_buf.append("--rpc-bind-port %d ",             result.rpc_port);
   arg_buf.append("--zmq-rpc-bind-port %d ",         result.zmq_rpc_port);
-  arg_buf.append("--data-dir ./daemons/daemon_%d ", global_state.num_daemons++);
+  arg_buf.append("--data-dir ./output/daemon_%d ", global_state.num_daemons++);
   arg_buf.append("--offline ");
   arg_buf.append("--service-node ");
-  arg_buf.append("--fixed-difficulty 25 ");
+  arg_buf.append("--fixed-difficulty 1 ");
 
   loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
   result.proc_handle = os_launch_process(cmd_buf.data);
@@ -180,7 +188,7 @@ wallet_t create_wallet()
 
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--testnet ");
-  arg_buf.append("--generate-new-wallet ./wallets/wallet_%d ", result.id);
+  arg_buf.append("--generate-new-wallet ./output/wallet_%d ", result.id);
   arg_buf.append("--password '' ");
   arg_buf.append("--mnemonic-language English ");
   arg_buf.append("save ");
@@ -196,7 +204,7 @@ void start_wallet(wallet_t *wallet)
 {
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--testnet ");
-  arg_buf.append("--wallet-file ./wallets/wallet_%d ", wallet->id);
+  arg_buf.append("--wallet-file ./output/wallet_%d ", wallet->id);
   arg_buf.append("--password '' ");
   arg_buf.append("--mnemonic-language English ");
 
@@ -240,12 +248,9 @@ int main(int, char **)
     printf("%s\n", result.data);
   }
 #else
-  // prepare_registration__solo_auto_stake().print_result();
+  //prepare_registration__solo_auto_stake().print_result();
   //prepare_registration__100_percent_operator_cut_auto_stake().print_result();
   stake__from_subaddress().print_result();
 #endif
-
-  write_to_stdin_mem(shared_mem_type::daemon, "exit");
-  write_to_stdin_mem(shared_mem_type::wallet, "exit");
   return 0;
 }

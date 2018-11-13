@@ -1,109 +1,16 @@
-#include "test_cases.h"
+#include "loki_test_cases.h"
+
+#define LOKI_WALLET_IMPLEMENTATION
+#include "loki_wallet.h"
+
+#define LOKI_STR_IMPLEMENTATION
+#include "loki_str.h"
+
+#define LOKI_DAEMON_IMPLEMENTATION
+#include "loki_daemon.h"
 
 #include <chrono>
 #include <thread>
-
-inline bool char_is_alpha(char ch)
-{
-  bool result = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
-  return result;
-}
-
-inline bool char_is_num(char ch)
-{
-  bool result = (ch >= '0' && ch <= '9');
-  return result;
-}
-
-char const *str_find(char const *src, int src_len, char const *find, int find_len = -1)
-{
-  if (find_len == -1) find_len = strlen(find);
-
-  char const *buf_ptr = src;
-  char const *buf_end = buf_ptr + src_len;
-  char const *result  = nullptr;
-
-  for (;*buf_ptr; ++buf_ptr)
-  {
-    int len_remaining = static_cast<int>(buf_end - buf_ptr);
-    if (len_remaining < find_len) break;
-
-    if (strncmp(buf_ptr, find, find_len) == 0)
-    {
-      result = buf_ptr;
-      break;
-    }
-  }
-
-  return result;
-}
-
-bool str_match(char const *src, char const *expect, int expect_len = -1)
-{
-  if (expect_len == -1) expect_len = strlen(expect);
-  bool result = (strncmp(src, expect, expect_len) == 0);
-  return result;
-}
-
-char const *str_find(loki_scratch_buf const *buf, char const *find, int find_len = -1)
-{
-  char const *result = str_find(buf->data, buf->len, find, find_len);
-  return result;
-}
-
-inline char const *str_skip_to_next_digit(char const *src)
-{
-  char const *result = src;
-  while (result && !char_is_num(result[0])) ++result;
-  return result;
-}
-
-inline bool char_is_alphanum(char ch)
-{
-  bool result = char_is_alpha(ch) || char_is_num(ch);
-  return result;
-}
-
-inline bool char_is_whitespace(char ch)
-{
-  bool result = (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r');
-  return result;
-}
-
-inline char const *str_skip_to_next_alphanum(char const *src)
-{
-  char const *result = src;
-  while (result && !char_is_alphanum(result[0])) ++result;
-  return result;
-}
-
-inline char const *str_skip_to_next_alpha_char(char const *src)
-{
-  char const *result = src;
-  while (result && !char_is_alpha(result[0])) ++result;
-  return result;
-}
-
-inline char const *str_skip_to_next_whitespace(char const *src)
-{
-  char const *result = src;
-  while (result && !char_is_whitespace(result[0])) ++result;
-  return result;
-}
-
-inline char const *str_skip_to_next_word(char const **src)
-{
-  while ((*src) && !char_is_whitespace((*src)[0])) ++(*src);
-  while ((*src) &&  char_is_whitespace((*src)[0])) ++(*src);
-  return *src;
-}
-
-inline char const *str_skip_whitespace(char const *src)
-{
-  char const *result = src;
-  while (result && char_is_whitespace(result[0])) ++result;
-  return result;
-}
 
 void test_result::print_result()
 {
@@ -120,14 +27,13 @@ void test_result::print_result()
   }
 }
 
-#define STR_EXPECT(test_result_var, src, expect_str) \
-if (!str_match(src, expect_str)) \
-{ \
-  test_result_var.failed = true; \
-  test_result_var.received_str = loki_buffer<1024>(src, (int)strlen(expect_str)); \
-  test_result_var.expected_str = expect_str; \
-  return test_result_var; \
-}
+struct loki_err_context
+{
+  bool              success;
+  loki_buffer<1024> err_msg;
+  operator bool() { return success; }
+};
+
 
 #define INITIALISE_TEST_CONTEXT(test_result_var) reset_shared_memory(); test_result_var.name = loki_buffer<512>(__func__)
 
@@ -136,6 +42,8 @@ test_result prepare_registration__solo_auto_stake()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
+  daemon_t daemon = start_daemon();
+  LOKI_DEFER { write_to_stdin_mem(shared_mem_type::daemon, "exit"); };
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
 
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
@@ -168,12 +76,15 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
+  daemon_t daemon = start_daemon();
+  LOKI_DEFER { write_to_stdin_mem(shared_mem_type::daemon, "exit"); };
+
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
   char const wallet2[] = "T6TZgnpJ2uaC1cqS4E6M6u7QmGA79q2G19ToBHnqWHxMMDocNTiw2phg52XjkAmEZH9V5xQUsaR3cbcTnELE1vXP2YkhEqXad";
 
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n"); // Contribute entire stake?
-  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "100%"); // Percentage stake
+  write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "100%"); // Operator cut
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "50"); // How much loki to reserve?
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Do you want to reserve portions of the stake for other contribs?
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "1"); // Number of additional contributors
@@ -213,19 +124,50 @@ test_result stake__from_subaddress()
 
   daemon_t daemon          = start_daemon();
   wallet_t operator_wallet = create_wallet();
+
   start_wallet(&operator_wallet);
+  LOKI_DEFER { wallet_exit(); };
 
-  // wallet_t stakers_wallet  = create_wallet();
+  wallet_set_default_testing_settings();
+  EXPECT(result, wallet_set_daemon(&daemon), "Could not set wallet with daemon at port %d", daemon.rpc_port);
+  wallet_mine_atleast_n_blocks(100);
 
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("refresh").c_str);
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("set ask-password 0").c_str);
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, loki_scratch_buf("set_daemon 127.0.0.1:%d", daemon.rpc_port).c_str);
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "start_mining");
-  STR_EXPECT(result, result.captured_stdout.data, "Mining started in daemon");
-  printf("%s\n", write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "refresh").c_str);
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "stop_mining");
-  STR_EXPECT(result, result.captured_stdout.data, "Mining started in daemon");
-  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "exit");
+  loki_addr subaddr = wallet_address_new();
+  {
+    loki_addr check = {};
+    wallet_address(1, &check);
+    EXPECT(result, strcmp(subaddr.c_str, check.c_str) == 0, "Subaddresses did not match, expected: %s, received: %s", subaddr.c_str, check.c_str);
+  }
+
+  loki_addr main_addr = {};
+  wallet_address(0, &main_addr);
+
+  loki_transaction_id tx_id = wallet_transfer(subaddr, 30);
+  wallet_address(1);
+  for (uint64_t subaddr_unlocked_bal = 0; subaddr_unlocked_bal < 30;)
+  {
+    wallet_mine_atleast_n_blocks(1);
+    wallet_get_balance(&subaddr_unlocked_bal);
+  }
+
+  loki_scratch_buf registration_cmd = {};
+  {
+    daemon_prepare_registration_params params = {};
+    params.open_pool                          = true;
+    params.num_contributors                   = 1;
+    params.contributors[0].addr               = main_addr;
+    params.contributors[0].amount             = 25;
+    daemon_prepare_registration(&params, &registration_cmd);
+  }
+
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, registration_cmd.c_str);
+  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Confirm?
+  wallet_mine_atleast_n_blocks(1);
+
+  loki_snode_key snode_key = {};
+  EXPECT(result, daemon_print_sn_key(&snode_key), "Failed to print sn key");
+
+  wallet_stake(&snode_key, &subaddr, 25);
 
   return result;
 }

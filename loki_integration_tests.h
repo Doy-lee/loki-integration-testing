@@ -47,12 +47,28 @@ struct wallet_t
     uint64_t unlocked_balance;
 };
 
+template <typename procedure>
+struct loki_defer_
+{
+     loki_defer_(procedure proc) : proc(proc) { }
+    ~loki_defer_()                            { proc(); }
+    procedure proc;
+};
+
+struct loki_defer_helper_
+{
+    template <typename procedure>
+    loki_defer_<procedure> operator+(procedure proc) { return loki_defer_<procedure>(proc); };
+};
+
+#define LOKI_DEFER const auto defer_lambda_##__COUNTER__ = loki_defer_helper_() + [&]()
+
 template <int MAX>
 struct loki_buffer
 {
   loki_buffer() : len(0) { data[0] = 0; }
-  loki_buffer(char const *fmt, ...)     { va_list va; va_start(va, fmt); len =  stbsp_vsnprintf(data, MAX, fmt, va);                                va_end(va); assert(len   < MAX); }
-  void append(char const *fmt, ...)     { va_list va; va_start(va, fmt); int extra = stbsp_vsnprintf(data + len, MAX - len, fmt, va); len += extra; va_end(va); assert(extra < MAX - len); }
+  loki_buffer(char const *fmt, ...)     { va_list va; va_start(va, fmt); len =  stbsp_vsnprintf(data, MAX, fmt, va);                  va_end(va); assert(len   < MAX); }
+  void append(char const *fmt, ...)     { va_list va; va_start(va, fmt); int extra = stbsp_vsnprintf(data + len, MAX - len, fmt, va); va_end(va); assert(extra < MAX - len); len += extra; }
 
   int  max() { return MAX; };
 
@@ -65,7 +81,10 @@ struct loki_buffer
   int  len;
 };
 
-using loki_scratch_buf = loki_buffer<8192>;
+using loki_scratch_buf    = loki_buffer<8192>;
+using loki_addr           = loki_buffer<98>;
+using loki_transaction_id = loki_buffer<65>;
+using loki_snode_key      = loki_buffer<65>;
 
 
 enum struct shared_mem_type { wallet, daemon };
@@ -73,6 +92,7 @@ void             write_to_stdin_mem               (shared_mem_type type, char co
 loki_scratch_buf read_from_stdout_mem             (shared_mem_type type);
 loki_scratch_buf write_to_stdin_mem_and_get_result(shared_mem_type type, char const *cmd, int cmd_len = -1);
 
+void             os_sleep_s                       (int seconds);
 void             os_sleep_ms                      (int ms);
 bool             os_file_delete                   (char const *path);
 

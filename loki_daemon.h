@@ -47,12 +47,12 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
   if (params->open_pool)
     assert(params->num_contributors != 4);
 
-  char const *auto_stake_input     = (params->auto_stake) ? "y" : "n";
+  char const *auto_stake_str  = (params->auto_stake) ? "y" : "n";
   loki_contributor const *owner = params->contributors + 0;
 
   loki_buffer<32> owner_portions("%zu", amount_to_staking_portions(owner->amount));
-  loki_buffer<8>  owner_fee   ("%d%", params->owner_fee_percent);
-  loki_buffer<8>  owner_amount("%zu",  owner->amount);
+  loki_buffer<8>  owner_fee     ("%d",  params->owner_fee_percent);
+  loki_buffer<8>  owner_amount  ("%zu", owner->amount);
 
   // Expected Format: register_service_node [auto] <owner cut> <address> <fraction> [<address> <fraction> [...]]]
   loki_scratch_buf output                     = {};
@@ -68,25 +68,26 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
       write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n");                  // Reserve for other contributors?
       write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner->addr.c_str);
       write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y");                  // You will leave this open for other people. Is this okay?
-      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, auto_stake_input);     // Auto restake?
+      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, auto_stake_str);     // Auto restake?
       output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y");         // Confirm?
 
       char const *register_str = str_find(&output, "register_service_node");
       char const *ptr          = register_str;
+      result                  &= (register_str != nullptr);
 
       if (params->auto_stake)
       {
-        char const *auto_stake = str_skip_to_next_word(&ptr);
-        result &= str_match(auto_stake, "auto");
+        char const *auto_stake_output = str_skip_to_next_word(&ptr);
+        result &= str_match(auto_stake_output, "auto");
       }
 
-      char const *owner_cut      = str_skip_to_next_word(&ptr);
-      char const *wallet_addr    = str_skip_to_next_word(&ptr);
-      char const *addr1_portions = str_skip_to_next_word(&ptr);
+      char const *owner_fee_output      = str_skip_to_next_word(&ptr);
+      char const *owner_addr_output     = str_skip_to_next_word(&ptr);
+      char const *owner_portions_output = str_skip_to_next_word(&ptr);
 
-      result &= str_match(owner_cut,      owner_portions.c_str);
-      result &= str_match(wallet_addr,    owner->addr.c_str);
-      result &= str_match(addr1_portions, owner_portions.c_str);
+      result &= str_match(owner_fee_output,      owner_fee.c_str);
+      result &= str_match(owner_addr_output,     owner->addr.c_str);
+      result &= str_match(owner_portions_output, owner_portions.c_str);
 
       register_service_node_start_ptr = register_str;
     }
@@ -94,26 +95,28 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
     {
       write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
       write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y");                   // Contribute entire stake?
-      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner->addr.c_str);  // Operator address
-      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, auto_stake_input);      // Auto restake?
-
+      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner->addr.c_str);     // Operator address
+      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, auto_stake_str);      // Auto restake?
       output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
-      char const *register_str      = str_find(&output, "register_service_node");
-      char const *prev              = register_str;
+
+      char const *register_str = str_find(&output, "register_service_node");
+      char const *prev         = register_str;
+      result                  &= (register_str != nullptr);
 
       if (params->auto_stake)
       {
         char const *auto_stake = str_skip_to_next_word(&prev);
         result &= str_match(auto_stake, "auto");
       }
-      char const *owner_portions  = str_skip_to_next_word(&prev);
-      char const *output_addr     = str_skip_to_next_word(&prev);
-      char const *output_portions = str_skip_to_next_word(&prev);
 
-      result &= str_match(register_str,    "register_service_node");
-      result &= str_match(owner_portions,  "18446744073709551612");
-      result &= str_match(output_addr,     owner->addr.c_str);
-      result &= str_match(output_portions, "18446744073709551612");
+      char const *owner_fee_output      = str_skip_to_next_word(&prev);
+      char const *owner_addr_output     = str_skip_to_next_word(&prev);
+      char const *owner_portions_output = str_skip_to_next_word(&prev);
+
+      result &= str_match(register_str,          "register_service_node");
+      result &= str_match(owner_fee_output,      "18446744073709551612");
+      result &= str_match(owner_addr_output,     owner->addr.c_str);
+      result &= str_match(owner_portions_output, "18446744073709551612");
 
       register_service_node_start_ptr = register_str;
     }
@@ -122,48 +125,47 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
   {
     // TODO(doyle): Complete implementation
     assert(false);
-    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n"); // Contribute entire stake?
-    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "2%"); // Operator cut
-
-    loki_buffer<32> owner_amount("%zu", owner->amount);
+    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n");                // Contribute entire stake?
+    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner_fee.c_str);    // Operator cut
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner_amount.c_str); // How much loki to reserve?
 
     int num_extra_contribs             = params->num_contributors - 1;
     char const *num_extra_contribs_str = (num_extra_contribs == 2) ? "2" : "3";
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y");                    // Do you want to reserve portions of the stake for other contribs?
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, num_extra_contribs_str); // Number of additional contributors
-    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner->addr.c_str);   // Operator address
+    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner->addr.c_str);      // Operator address
 
-    for (int i = 1; i < params->num_contributors; ++i)
+    for (int i = 0; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
       write_to_stdin_mem_and_get_result(shared_mem_type::daemon, contributor_amount.c_str); // How much loki to reserve for contributor
-      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, contributor->addr.c_str); // Contrib address
+      write_to_stdin_mem_and_get_result(shared_mem_type::daemon, contributor->addr.c_str);  // Contrib address
     }
-    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Autostake
+
+    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, auto_stake_str); // Autostake
 
     output                    = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
     char const *register_str  = str_find(&output, "register_service_node");
     char const *prev          = register_str;
+    result                   &= (register_str != nullptr);
 
-    char const *auto_stake    = str_skip_to_next_word(&prev);
-    char const *owner_cut     = str_skip_to_next_word(&prev);
+    char const *auto_stake_output = str_skip_to_next_word(&prev);
+    char const *owner_fee_output  = str_skip_to_next_word(&prev);
 
-    result &= str_match(register_str,  "register_service_node");
-    result &= str_match(auto_stake,    "auto");
-    result &= str_match(owner_cut,     owner_portions.c_str);
+    result &= str_match(auto_stake_output, "auto");
+    result &= str_match(owner_fee_output,  owner_fee.c_str);
 
     for (int i = 0; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
 
-      char const *output_addr     = str_skip_to_next_word(&prev);
-      char const *output_portions = str_skip_to_next_word(&prev);
+      char const *addr_output     = str_skip_to_next_word(&prev);
+      char const *portions_output = str_skip_to_next_word(&prev);
 
       loki_buffer<32> contributor_portions("%zu", amount_to_staking_portions(contributor->amount));
-      result &= str_match(output_addr,     contributor->addr.c_str);
-      result &= str_match(output_portions, contributor_portions.c_str); // exactly 50% of staking portions
+      result &= str_match(addr_output,     contributor->addr.c_str);
+      result &= str_match(portions_output, contributor_portions.c_str); // exactly 50% of staking portions
     }
 
     register_service_node_start_ptr = register_str;
@@ -171,12 +173,13 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
 
   if (result)
   {
-    char const *register_service_node_end_ptr = register_service_node_start_ptr;
-    while (register_service_node_end_ptr[0] && register_service_node_end_ptr[0] != '\n')
-      ++register_service_node_end_ptr;
+    char const *start = register_service_node_start_ptr;
+    char const *end   = start;
+    while (end[0] && end[0] != '\n')
+      ++end;
 
-    int len = static_cast<int>(register_service_node_end_ptr - register_service_node_start_ptr);
-    registration_cmd->append("%.*s", len, register_service_node_start_ptr);
+    int len = static_cast<int>(end - start);
+    registration_cmd->append("%.*s", len, start);
   }
 
   return result;

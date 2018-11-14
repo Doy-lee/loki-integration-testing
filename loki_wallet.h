@@ -96,7 +96,8 @@ void wallet_exit()
 
 static uint64_t parse_loki_amount(char const *amount)
 {
-  // Example format: 0.000000000
+  // Example
+  // 0.000000000
   char const *atomic_ptr = amount;
   while(atomic_ptr[0] && atomic_ptr[0] != '.') atomic_ptr++;
   atomic_ptr++;
@@ -112,6 +113,7 @@ uint64_t wallet_get_balance(uint64_t *unlocked_balance)
 {
   loki_scratch_buf src = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "balance");
 
+  // Example
   // Balance: 0.000000000, unlocked balance: 0.000000000
   char const *ptr           = str_skip_whitespace(src.c_str);
   char const *balance_label = ptr;

@@ -41,10 +41,9 @@ char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code
 char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
 #endif
 
-const int POLL_SHARED_MEM_SLEEP_MS = 500;
 static state_t global_state;
-
 uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
+
 static void make_message(char *msg_buf, int msg_buf_len, char const *msg_data, int msg_data_len)
 {
   uint64_t timestamp = time(nullptr);
@@ -84,9 +83,13 @@ void write_to_stdin_mem(shared_mem_type type, char const *cmd, int cmd_len)
 
   if (cmd_len == -1) cmd_len = static_cast<int>(strlen(cmd));
   assert(cmd_len < shared_mem->Size());
-
   make_message((char *)shared_mem->Data(), shared_mem->Size(), cmd, cmd_len);
-  std::this_thread::sleep_for(std::chrono::milliseconds(POLL_SHARED_MEM_SLEEP_MS));
+
+  // TODO(doyle): Make it so we never need to sleep, or reduce this number as
+  // much as possible. This is our bottleneck. But right now, if we write and
+  // read too fast, we might skip certain outputs and get blocked waiting for
+  // a result.
+  os_sleep_ms(500);
 }
 
 loki_scratch_buf read_from_stdout_mem(shared_mem_type type)
@@ -104,7 +107,11 @@ loki_scratch_buf read_from_stdout_mem(shared_mem_type type)
   char const *output       = nullptr;
   for(uint64_t timestamp = 0;; timestamp = 0)
   {
-    std::this_thread::sleep_for(std::chrono::milliseconds(POLL_SHARED_MEM_SLEEP_MS));
+    // TODO(doyle): Make it so we never need to sleep, or reduce this number as
+    // much as possible. This is our bottleneck. But right now, if we write and
+    // read too fast, we might skip certain outputs and get blocked waiting for
+    // a result.
+    os_sleep_ms(500);
     shared_mem->Open();
 
     // NOTE: If commands are completed quickly the timestamps may still be the same.
@@ -248,8 +255,8 @@ int main(int, char **)
     printf("%s\n", result.data);
   }
 #else
-  //prepare_registration__solo_auto_stake().print_result();
-  //prepare_registration__100_percent_operator_cut_auto_stake().print_result();
+  prepare_registration__solo_auto_stake().print_result();
+  prepare_registration__100_percent_operator_cut_auto_stake().print_result();
   stake__from_subaddress().print_result();
 #endif
   return 0;

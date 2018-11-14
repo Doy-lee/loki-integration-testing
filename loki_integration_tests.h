@@ -12,6 +12,9 @@
 #define LOKI_ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOKI_CHAR_COUNT(array) (LOKI_ARRAY_COUNT(array) - 1)
 #define LOKI_MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define LOKI_MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define LOKI_SECONDS_TO_MS(val) ((val) * 1000)
+#define LOKI_MS_TO_SECONDS(val) ((val) / 1000)
 
 struct state_t
 {
@@ -31,6 +34,7 @@ struct daemon_t
 {
     FILE *proc_handle;
 
+    int id;
     bool is_mining;
     int p2p_port;
     int rpc_port;
@@ -99,8 +103,21 @@ bool             os_file_delete                   (char const *path);
 enum struct reset_type { all, daemon, wallet };
 void             reset_shared_memory(reset_type type = reset_type::all);
 
+struct start_daemon_params
+{
+  int fixed_difficulty = 1; // Set to 0 to disable
+  bool service_node    = true;
+};
+
+struct start_wallet_params
+{
+  daemon_t *daemon                          = nullptr;
+  bool      allow_mismatched_daemon_version = true;
+};
+
 wallet_t         create_wallet();
-void             start_wallet(wallet_t *wallet);
-daemon_t         start_daemon();
+daemon_t         create_daemon();
+void             start_wallet(wallet_t *wallet, start_wallet_params params = {});
+void             start_daemon(daemon_t *daemon, start_daemon_params params = {});
 
 #endif // LOKI_INTEGRATION_TEST_H

@@ -16,6 +16,7 @@ char const *str_find                   (char const *src,              char const
 char const *str_find                   (char const *src, int src_len, char const *find, int find_len = -1);
 char const *str_find                   (loki_scratch_buf const *buf,  char const *find, int find_len = -1);
 bool        str_match                  (char const *src,              char const *find, int find_len = -1);
+uint64_t    str_parse_loki_amount      (char const *amount);
 char const *str_skip_to_next_digit     (char const *src);
 char const *str_skip_to_next_alphanum  (char const *src);
 char const *str_skip_to_next_alpha_char(char const *src);
@@ -80,6 +81,21 @@ bool str_match(char const *src, char const *find, int find_len)
 {
   if (find_len == -1) find_len = strlen(find);
   bool result = (strncmp(src, find, find_len) == 0);
+  return result;
+}
+
+uint64_t str_parse_loki_amount(char const *amount)
+{
+  // Example
+  // 0.000000000
+  char const *atomic_ptr = amount;
+  while(atomic_ptr[0] && atomic_ptr[0] != '.') atomic_ptr++;
+  atomic_ptr++;
+
+  uint64_t whole_part  = atoi(amount) * LOKI_ATOMIC_UNITS;
+  uint64_t atomic_part = atoi(++atomic_ptr);
+
+  uint64_t result = whole_part + atomic_part;
   return result;
 }
 

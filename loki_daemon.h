@@ -22,8 +22,12 @@ struct daemon_prepare_registration_params
   loki_contributor contributors[4];
 };
 
-bool daemon_prepare_registration(daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
-bool daemon_print_sn_key        (loki_snode_key *key);
+void     daemon_exit                ();
+bool     daemon_prepare_registration(daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
+uint64_t daemon_print_height        ();
+bool     daemon_print_sn_key        (loki_snode_key *key);
+bool     daemon_print_sn_status     (); // return: If the node is known on the network (i.e. registered)
+uint64_t daemon_print_sr            (uint64_t height);
 
 #endif // LOKI_DAEMON_H
 
@@ -36,6 +40,18 @@ static uint64_t amount_to_staking_portions(uint64_t amount)
   // TODO(doyle): Assumes staking requirement of 100
   uint64_t const MAX_STAKING_PORTIONS = 0xfffffffffffffffc;
   uint64_t result = (MAX_STAKING_PORTIONS / 100) * amount;
+  return result;
+}
+
+void daemon_exit()
+{
+  write_to_stdin_mem(shared_mem_type::daemon, "exit");
+}
+
+uint64_t daemon_print_height()
+{
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "print_height");
+  uint64_t result         = static_cast<uint64_t>(atoi(output.c_str));
   return result;
 }
 
@@ -124,7 +140,7 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
   else
   {
     // TODO(doyle): Complete implementation
-    assert(false);
+    write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "prepare_registration");
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "n");                // Contribute entire stake?
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner_fee.c_str);    // Operator cut
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner_amount.c_str); // How much loki to reserve?
@@ -135,7 +151,7 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, num_extra_contribs_str); // Number of additional contributors
     write_to_stdin_mem_and_get_result(shared_mem_type::daemon, owner->addr.c_str);      // Operator address
 
-    for (int i = 0; i < params->num_contributors; ++i)
+    for (int i = 1; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
@@ -147,25 +163,32 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
 
     output                    = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
     char const *register_str  = str_find(&output, "register_service_node");
-    char const *prev          = register_str;
+    char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
+    if (params->auto_stake)
+    {
+      char const *auto_stake_output = str_skip_to_next_word(&ptr);
+      result &= str_match(auto_stake_output, "auto");
+    }
 
-    char const *auto_stake_output = str_skip_to_next_word(&prev);
-    char const *owner_fee_output  = str_skip_to_next_word(&prev);
-
-    result &= str_match(auto_stake_output, "auto");
+    char const *owner_fee_output  = str_skip_to_next_word(&ptr);
     result &= str_match(owner_fee_output,  owner_fee.c_str);
 
     for (int i = 0; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
 
-      char const *addr_output     = str_skip_to_next_word(&prev);
-      char const *portions_output = str_skip_to_next_word(&prev);
+      char const *addr_output     = str_skip_to_next_word(&ptr);
 
-      loki_buffer<32> contributor_portions("%zu", amount_to_staking_portions(contributor->amount));
       result &= str_match(addr_output,     contributor->addr.c_str);
-      result &= str_match(portions_output, contributor_portions.c_str); // exactly 50% of staking portions
+
+      char const *portions_output = str_skip_to_next_word(&ptr);
+      loki_buffer<32> contributor_portions("%zu", amount_to_staking_portions(contributor->amount));
+      (void)portions_output; (void)contributor_portions;
+
+      // TODO(doyle): Validate amounts, because we don't use the same portions
+      // calculation as loki daemon we can be off by small amounts.
+      // result &= str_match(portions_output, contributor_portions.c_str);
     }
 
     register_service_node_start_ptr = register_str;
@@ -196,6 +219,29 @@ bool daemon_print_sn_key(loki_snode_key *key)
 
   if (key) *key = key_ptr;
   return true;
+}
+
+bool daemon_print_sn_status()
+{
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "print_sn_status");
+  if (str_match("No service node is currently known on the network for:", output.c_str))
+    return false;
+
+  return true;
+}
+
+uint64_t daemon_print_sr(uint64_t height)
+{
+  loki_buffer<32> cmd("print_sr %zu", height);
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, cmd.c_str);
+  assert(str_match(output.c_str, "Staking Requirement: "));
+
+  char const *staking_requirement_str = str_find(output.c_str, ":");
+  assert(staking_requirement_str);
+  ++staking_requirement_str;
+
+  uint64_t result = str_parse_loki_amount(staking_requirement_str);
+  return result;
 }
 
 #endif // LOKI_DAEMON_IMPLEMENTATION

@@ -34,7 +34,6 @@ struct loki_err_context
   operator bool() { return success; }
 };
 
-
 #define INITIALISE_TEST_CONTEXT(test_result_var) reset_shared_memory(); test_result_var.name = loki_buffer<512>(__func__)
 
 test_result prepare_registration__solo_auto_stake()
@@ -42,7 +41,9 @@ test_result prepare_registration__solo_auto_stake()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon = start_daemon();
+  daemon_t daemon = create_daemon();
+  start_daemon(&daemon);
+
   LOKI_DEFER { write_to_stdin_mem(shared_mem_type::daemon, "exit"); };
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
 
@@ -76,7 +77,8 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon = start_daemon();
+  daemon_t daemon = create_daemon();
+  start_daemon(&daemon);
   LOKI_DEFER { write_to_stdin_mem(shared_mem_type::daemon, "exit"); };
 
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
@@ -122,7 +124,8 @@ test_result stake__from_subaddress()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon          = start_daemon();
+  daemon_t daemon = create_daemon();
+  start_daemon(&daemon);
   wallet_t operator_wallet = create_wallet();
 
   start_wallet(&operator_wallet);
@@ -160,8 +163,7 @@ test_result stake__from_subaddress()
     daemon_prepare_registration(&params, &registration_cmd);
   }
 
-  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, registration_cmd.c_str);
-  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Confirm?
+  wallet_register_service_node(registration_cmd.c_str);
   wallet_mine_atleast_n_blocks(1);
 
   loki_snode_key snode_key = {};
@@ -169,5 +171,77 @@ test_result stake__from_subaddress()
 
   wallet_stake(&snode_key, &subaddr, 25);
 
+  return result;
+}
+
+test_result register_service_node__4_stakers()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  daemon_t daemon            = create_daemon();
+  start_daemon(&daemon);
+  wallet_t  stakers[4]       = {};
+  loki_addr stakers_addr[4]  = {};
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+
+  // Mine and unlock funds
+  for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+  {
+    stakers[i] = create_wallet();
+    start_wallet(stakers + i, wallet_params);
+    wallet_set_default_testing_settings();
+
+    LOKI_DEFER { wallet_exit(); };
+
+    wallet_address(0, stakers_addr + i);
+    wallet_mine_atleast_n_blocks(2);
+  }
+
+  wallet_t *owner = stakers + 0;
+  start_wallet(owner, wallet_params);
+  wallet_mine_unlock_time_blocks();
+
+  // Register the service node
+  loki_snode_key snode_key = {};
+  daemon_print_sn_key(&snode_key);
+
+  daemon_prepare_registration_params registration_params = {};
+  registration_params.num_contributors = (int)LOKI_ARRAY_COUNT(stakers);
+  for (int i = 0; i < registration_params.num_contributors; ++i)
+  {
+    registration_params.contributors[i].addr   = stakers_addr[i];
+    registration_params.contributors[i].amount = 25; // TODO(doyle): Assumes testnet staking requirement of 100
+  }
+
+  loki_scratch_buf registration_cmd = {};
+  daemon_prepare_registration (&registration_params, &registration_cmd);
+  assert(wallet_register_service_node(registration_cmd.c_str));
+  wallet_mine_atleast_n_blocks(1, 100 /*mining_duration*/);
+
+  // Each person stakes their part to the wallet
+  wallet_exit();
+  daemon_exit();
+
+  // TODO(doyle): HACK. For some reason the 3rd wallet gets stuck and doesn't
+  // connect to the daemon. Maybe a max connection limit?
+  start_daemon(&daemon);
+  LOKI_DEFER { daemon_exit(); };
+
+  for (int i = 1; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+  {
+    start_wallet(stakers + i, wallet_params);
+    LOKI_DEFER { wallet_exit(); };
+
+    loki_contributor const *contributor = registration_params.contributors + i;
+    assert(wallet_stake(&snode_key, &contributor->addr, contributor->amount));
+  }
+
+  start_wallet(owner, wallet_params);
+  wallet_mine_atleast_n_blocks(1);
+  EXPECT(result, daemon_print_sn_status(), "Service node could not be registered");
+  wallet_exit();
   return result;
 }

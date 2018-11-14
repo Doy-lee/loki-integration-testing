@@ -10,6 +10,8 @@
 #define STB_SPRINTF_IMPLEMENTATION
 #include "external/stb_sprintf.h"
 
+#include "loki_daemon.h"
+
 static char global_temp_buf[8192];
 
 FILE *os_launch_process(char const *cmd_line)
@@ -161,30 +163,39 @@ bool os_file_delete(char const *path)
     return result;
 }
 
-daemon_t start_daemon()
+void start_daemon(daemon_t *daemon, start_daemon_params params)
+{
+  loki_scratch_buf arg_buf = {};
+  arg_buf.append("--testnet ");
+  arg_buf.append("--p2p-bind-port %d ",            daemon->p2p_port);
+  arg_buf.append("--rpc-bind-port %d ",            daemon->rpc_port);
+  arg_buf.append("--zmq-rpc-bind-port %d ",        daemon->zmq_rpc_port);
+  arg_buf.append("--data-dir ./output/daemon_%d ", daemon->id);
+  arg_buf.append("--offline ");
+
+  if (params.service_node)
+    arg_buf.append("--service-node ");
+
+  if (params.fixed_difficulty > 0)
+    arg_buf.append("--fixed-difficulty %d ", params.fixed_difficulty);
+
+  loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
+  reset_shared_memory(reset_type::daemon);
+  daemon->proc_handle = os_launch_process(cmd_buf.data);
+  os_sleep_ms(1000); // TODO(doyle): HACK to let enough time for the daemon to init
+}
+
+daemon_t create_daemon()
 {
   static int p2p_port = 1111;
   static int rpc_port = 2222;
   static int zmq_port = 3333;
 
   daemon_t result     = {};
+  result.id           = global_state.num_daemons++;
   result.p2p_port     = p2p_port++;
   result.rpc_port     = rpc_port++;
   result.zmq_rpc_port = zmq_port++;
-
-  loki_scratch_buf arg_buf = {};
-  arg_buf.append("--testnet ");
-  arg_buf.append("--p2p-bind-port %d ",             result.p2p_port);
-  arg_buf.append("--rpc-bind-port %d ",             result.rpc_port);
-  arg_buf.append("--zmq-rpc-bind-port %d ",         result.zmq_rpc_port);
-  arg_buf.append("--data-dir ./output/daemon_%d ", global_state.num_daemons++);
-  arg_buf.append("--offline ");
-  arg_buf.append("--service-node ");
-  arg_buf.append("--fixed-difficulty 1 ");
-
-  loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
-  result.proc_handle = os_launch_process(cmd_buf.data);
-  reset_shared_memory(reset_type::daemon);
   return result;
 }
 
@@ -200,20 +211,26 @@ wallet_t create_wallet()
   arg_buf.append("--mnemonic-language English ");
   arg_buf.append("save ");
 
+  reset_shared_memory(reset_type::wallet);
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
   os_launch_process(cmd_buf.data);
   os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init, save and close.
-  reset_shared_memory(reset_type::wallet);
   return result;
 }
 
-void start_wallet(wallet_t *wallet)
+void start_wallet(wallet_t *wallet, start_wallet_params params)
 {
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--testnet ");
   arg_buf.append("--wallet-file ./output/wallet_%d ", wallet->id);
   arg_buf.append("--password '' ");
   arg_buf.append("--mnemonic-language English ");
+
+  if (params.allow_mismatched_daemon_version)
+    arg_buf.append("--allow-mismatched-daemon-version ");
+
+  if (params.daemon)
+    arg_buf.append("--daemon-address 127.0.0.1:%d ", params.daemon->rpc_port);
 
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
   wallet->proc_handle = os_launch_process(cmd_buf.data);
@@ -247,6 +264,7 @@ int main(int, char **)
 {
   printf("\n");
 #if 0
+  reset_shared_memory();
   std::string line;
   for (;;line.clear())
   {
@@ -255,9 +273,16 @@ int main(int, char **)
     printf("%s\n", result.data);
   }
 #else
-  prepare_registration__solo_auto_stake().print_result();
-  prepare_registration__100_percent_operator_cut_auto_stake().print_result();
-  stake__from_subaddress().print_result();
+  // prepare_registration__solo_auto_stake().print_result();
+  // prepare_registration__100_percent_operator_cut_auto_stake().print_result();
+  // stake__from_subaddress().print_result();
+  register_service_node__4_stakers().print_result();
+
+#if 0
+  daemon_t daemon = create_daemon();
+  start_daemon(&daemon);
+  daemon_exit();
+#endif
 #endif
   return 0;
 }

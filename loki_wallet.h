@@ -20,15 +20,16 @@ bool                wallet_address                     (int index, loki_addr *ad
 loki_addr           wallet_address_new                 ();
 void                wallet_exit                        ();
 uint64_t            wallet_get_balance                 (uint64_t *unlocked_balance);
-void                wallet_refresh                     (int refresh_wait_time_in_s = 5);
+void                wallet_refresh                     (int refresh_wait_time_in_ms = 2000);
 bool                wallet_set_daemon                  (struct daemon_t const *daemon);
 bool                wallet_stake                       (loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
 uint64_t            wallet_status                      (); // return: The current height the wallet is synced at
 loki_transaction_id wallet_transfer                    (loki_addr dest, uint64_t amount);
-void                wallet_mine_atleast_n_blocks       (int num_blocks);
-void                wallet_mine_for_n_seconds          (int seconds);
-// return: The actual unlocked balance, can vary by abit.
-uint64_t            wallet_mine_until_unlocked_balance (uint64_t desired_unlocked_balance, int time_to_mine_before_check_in_s = 1);
+void                wallet_mine_atleast_n_blocks       (int num_blocks, int mining_duration_in_ms = 500);
+inline void         wallet_mine_unlock_time_blocks     () { wallet_mine_atleast_n_blocks(30); }
+void                wallet_mine_for_n_milliseconds     (int milliseconds);
+uint64_t            wallet_mine_until_unlocked_balance (uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
+bool                wallet_register_service_node       (loki_scratch_buf const *registration_cmd);
 
 #endif // LOKI_WALLET_H
 
@@ -94,21 +95,6 @@ void wallet_exit()
   write_to_stdin_mem(shared_mem_type::wallet, "exit");
 }
 
-static uint64_t parse_loki_amount(char const *amount)
-{
-  // Example
-  // 0.000000000
-  char const *atomic_ptr = amount;
-  while(atomic_ptr[0] && atomic_ptr[0] != '.') atomic_ptr++;
-  atomic_ptr++;
-
-  uint64_t whole_part  = atoi(amount) * LOKI_ATOMIC_UNITS;
-  uint64_t atomic_part = atoi(++atomic_ptr);
-
-  uint64_t result = whole_part + atomic_part;
-  return result;
-}
-
 uint64_t wallet_get_balance(uint64_t *unlocked_balance)
 {
   loki_scratch_buf src = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "balance");
@@ -120,36 +106,46 @@ uint64_t wallet_get_balance(uint64_t *unlocked_balance)
   assert(str_match(ptr, "Balance: "));
 
   char const *balance_str = str_skip_to_next_word(&ptr);
-  uint64_t balance        = parse_loki_amount(balance_str);
+  uint64_t balance        = str_parse_loki_amount(balance_str);
 
   char const *unlocked_balance_label = str_skip_to_next_word(&ptr);
   assert(str_match(ptr, "unlocked balance: "));
 
   char const *unlocked_balance_str = str_skip_to_next_word(&ptr);
-  *unlocked_balance                = parse_loki_amount(unlocked_balance_str);
+  *unlocked_balance                = str_parse_loki_amount(unlocked_balance_str);
 
   return balance;
 }
 
-void wallet_refresh(int refresh_wait_time_in_s)
+void wallet_refresh(int refresh_wait_time_in_ms)
 {
   write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "refresh");
   // TODO(doyle): HACK because this spams the console with message_writers()
   // async, so we want to give it enough time to finish printing before moving
   // onto the next command, otherwise it will overwrite subsequent output in an
   // async manner
-  os_sleep_s(refresh_wait_time_in_s);
+  os_sleep_ms(refresh_wait_time_in_ms);
 }
 
 bool wallet_stake(loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id)
 {
   loki_buffer<512> cmd("stake %s %s %zu", service_node_key->c_str, contributor_addr->c_str, amount);
-  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, cmd.c_str);
+  write_to_stdin_mem(shared_mem_type::wallet, cmd.c_str);
 
+  // TODO(doyle): Skip this. Stake actually triggers a refresh in the wallet, so
+  // it's going to spam some irrelevant output to us most likely and this will
+  // overwrite what we receive in stdin shared mem.
+
+  // To fix this, we need to make shared mem smarter and have a queue of
+  // stdout lines to process. Because of this, just sleep and hope the refresh
+  // is done in time.
+  os_sleep_s(2);
+#if 0
   if (!str_find(output.c_str, "Spending from address index "))
     return false;
+#endif
 
-  output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Confirm?
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Confirm?
   assert(str_find(output.c_str, "Transaction successfully submitted, transaction <"));
 
   if (tx_id)
@@ -207,40 +203,47 @@ loki_transaction_id wallet_transfer(loki_addr dest, uint64_t amount)
   return result;
 }
 
-void wallet_mine_atleast_n_blocks(int num_blocks)
+void wallet_mine_atleast_n_blocks(int num_blocks, int mining_duration_in_ms)
 {
   for (uint64_t start_height = wallet_status();;)
   {
-    const int mine_duration_in_s = 1;
-    wallet_mine_for_n_seconds(mine_duration_in_s);
-    wallet_refresh(mine_duration_in_s * 2 /*refresh_wait_time_in_s*/);
+    wallet_mine_for_n_milliseconds(mining_duration_in_ms);
+    wallet_refresh(mining_duration_in_ms * 2 /*refresh_wait_time_in_ms*/);
     uint64_t delta_height = wallet_status() - start_height;
     if (delta_height > num_blocks)
       break;
   }
 }
 
-void wallet_mine_for_n_seconds(int seconds)
+void wallet_mine_for_n_milliseconds(int milliseconds)
 {
   loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "start_mining");
   assert(str_match(output.c_str, "Mining started in daemon"));
 
-  os_sleep_s(seconds);
+  os_sleep_ms(milliseconds);
 
   output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "stop_mining");
   assert(str_match(output.c_str, "Mining stopped in daemon"));
 }
 
-uint64_t wallet_mine_until_unlocked_balance(uint64_t desired_unlocked_balance, int time_to_mine_before_check_in_s)
+uint64_t wallet_mine_until_unlocked_balance(uint64_t desired_unlocked_balance, int mining_duration_in_ms)
 {
   uint64_t unlocked_balance = 0;
   for (;unlocked_balance < desired_unlocked_balance;)
   {
-    wallet_mine_for_n_seconds(time_to_mine_before_check_in_s);
-    wallet_refresh           (time_to_mine_before_check_in_s * 2 /*refresh_wait_time_in_s*/);
-    wallet_get_balance       (&unlocked_balance);
+    wallet_mine_for_n_milliseconds(mining_duration_in_ms);
+    wallet_refresh                (mining_duration_in_ms * 2 /*refresh_wait_time_in_ms*/);
+    wallet_get_balance            (&unlocked_balance);
   }
 
   return unlocked_balance;
 }
+
+bool wallet_register_service_node(char const *registration_cmd)
+{
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, registration_cmd);
+  output                  = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Confirm?
+  return true;
+}
+
 #endif

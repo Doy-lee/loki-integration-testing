@@ -276,13 +276,9 @@ int main(int, char **)
   // prepare_registration__solo_auto_stake().print_result();
   // prepare_registration__100_percent_operator_cut_auto_stake().print_result();
   // stake__from_subaddress().print_result();
+  transfer__expect_fee_amount().print_result();
   register_service_node__4_stakers().print_result();
 
-#if 0
-  daemon_t daemon = create_daemon();
-  start_daemon(&daemon);
-  daemon_exit();
-#endif
 #endif
   return 0;
 }

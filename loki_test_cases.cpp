@@ -145,7 +145,7 @@ test_result stake__from_subaddress()
   loki_addr main_addr = {};
   wallet_address(0, &main_addr);
 
-  loki_transaction_id tx_id = wallet_transfer(subaddr, 30);
+  wallet_transfer(&subaddr, 30);
   wallet_address(1);
   for (uint64_t subaddr_unlocked_bal = 0; subaddr_unlocked_bal < 30;)
   {
@@ -243,5 +243,34 @@ test_result register_service_node__4_stakers()
   wallet_mine_atleast_n_blocks(1);
   EXPECT(result, daemon_print_sn_status(), "Service node could not be registered");
   wallet_exit();
+  return result;
+}
+
+test_result transfer__expect_fee_amount()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  daemon_t daemon = create_daemon();
+  wallet_t wallet = create_wallet();
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+
+  start_daemon(&daemon);
+  start_wallet(&wallet, wallet_params);
+  LOKI_DEFER { daemon_exit(); wallet_exit(); };
+
+  wallet_set_default_testing_settings();
+  wallet_mine_atleast_n_blocks(100);
+  loki_transaction tx = wallet_transfer("T6TUmu1R3eX6YJdkDqtHGrM2H25V5exPPiizVdrfze6XCaWqVvQUCKC2fPkwvfxZP5JmUTvHVDaJMcGQfHP2xUeu2YjjuCiMX", 25);
+
+  int64_t const fee_estimate = 71639960;
+  int64_t const fee          = static_cast<int64_t>(tx.fee);
+
+  int64_t delta         = LOKI_ABS(fee_estimate - fee);
+  int64_t const epsilon = 10000000;
+
+  EXPECT(result, delta < epsilon, "Unexpected fee"); // TODO(doyle): Improve macro to take __va_args__
   return result;
 }

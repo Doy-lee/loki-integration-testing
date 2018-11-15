@@ -14,22 +14,23 @@ struct wallet_params
   uint64_t refresh_from_block_height = 0;
 };
 
-void                wallet_set_default_testing_settings(wallet_params const params = {});
+void             wallet_set_default_testing_settings(wallet_params const params = {});
 
-bool                wallet_address                     (int index, loki_addr *addr = nullptr); // Switch to subaddress at index
-loki_addr           wallet_address_new                 ();
-void                wallet_exit                        ();
-uint64_t            wallet_get_balance                 (uint64_t *unlocked_balance);
-void                wallet_refresh                     (int refresh_wait_time_in_ms = 2000);
-bool                wallet_set_daemon                  (struct daemon_t const *daemon);
-bool                wallet_stake                       (loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
-uint64_t            wallet_status                      (); // return: The current height the wallet is synced at
-loki_transaction_id wallet_transfer                    (loki_addr dest, uint64_t amount);
-void                wallet_mine_atleast_n_blocks       (int num_blocks, int mining_duration_in_ms = 500);
-inline void         wallet_mine_unlock_time_blocks     () { wallet_mine_atleast_n_blocks(30); }
-void                wallet_mine_for_n_milliseconds     (int milliseconds);
-uint64_t            wallet_mine_until_unlocked_balance (uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
-bool                wallet_register_service_node       (loki_scratch_buf const *registration_cmd);
+bool             wallet_address                     (int index, loki_addr *addr = nullptr); // Switch to subaddress at index
+loki_addr        wallet_address_new                 ();
+void             wallet_exit                        ();
+uint64_t         wallet_get_balance                 (uint64_t *unlocked_balance);
+void             wallet_refresh                     (int refresh_wait_time_in_ms = 2000);
+bool             wallet_set_daemon                  (struct daemon_t const *daemon);
+bool             wallet_stake                       (loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
+uint64_t         wallet_status                      (); // return: The current height the wallet is synced at
+loki_transaction wallet_transfer                    (char      const *dest, uint64_t amount); // TODO(doyle): We only support whole amounts. Not atomic units either.
+loki_transaction wallet_transfer                    (loki_addr const *dest, uint64_t amount);
+void             wallet_mine_atleast_n_blocks       (int num_blocks, int mining_duration_in_ms = 500);
+inline void      wallet_mine_unlock_time_blocks     () { wallet_mine_atleast_n_blocks(30); }
+void             wallet_mine_for_n_milliseconds     (int milliseconds);
+uint64_t         wallet_mine_until_unlocked_balance (uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
+bool             wallet_register_service_node       (loki_scratch_buf const *registration_cmd);
 
 #endif // LOKI_WALLET_H
 
@@ -46,16 +47,19 @@ bool                wallet_register_service_node       (loki_scratch_buf const *
 
 void wallet_set_default_testing_settings(wallet_params const params)
 { 
+  shared_mem_type const wallet = shared_mem_type::wallet;
   // TODO(doyle): HACK: The sleeps are here because these cmds complete too quickly
   // and we might get blocked waiting reading the results of them too quickly
   // and skipping the other
   loki_buffer<64> ask_password("set ask-password %d", params.disable_asking_password ? 0 : 1);
-  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, ask_password.c_str);
+  write_to_stdin_mem(wallet, ask_password.c_str);
   os_sleep_ms(500);
+  read_from_stdout_mem(wallet);
 
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
-  write_to_stdin_mem_and_get_result(shared_mem_type::wallet, refresh_height.c_str);
+  write_to_stdin_mem(wallet, refresh_height.c_str);
   os_sleep_ms(500);
+  read_from_stdout_mem(wallet);
 }
 
 bool wallet_address(int index, loki_addr *addr)
@@ -111,6 +115,7 @@ uint64_t wallet_get_balance(uint64_t *unlocked_balance)
   char const *unlocked_balance_label = str_skip_to_next_word(&ptr);
   assert(str_match(ptr, "unlocked balance: "));
 
+  os_sleep_ms(500);
   char const *unlocked_balance_str = str_skip_to_next_word(&ptr);
   *unlocked_balance                = str_parse_loki_amount(unlocked_balance_str);
 
@@ -180,26 +185,53 @@ bool wallet_set_daemon(daemon_t const *daemon)
   return result;
 }
 
-loki_transaction_id wallet_transfer(loki_addr dest, uint64_t amount)
+loki_transaction wallet_transfer(char const *dest, uint64_t amount)
 {
-  loki_buffer<256> cmd("transfer %s %zu", dest.c_str, amount);
+  loki_buffer<256> cmd("transfer %s %zu", dest, amount);
   loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, cmd.c_str);
 
-  if (str_match(output.c_str, "No payment id is included with this transaction. Is this okay? (Y/Yes/N/No):"))
-  {
+  // NOTE: No payment ID requested if sending to subaddress
+  if (str_match(output.c_str, "No payment id is included with this transaction. Is this okay?"))
     output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y");
-  }
+
+  loki_transaction result = {};
+  result.dest             = dest;
 
   // TODO(doyle): Add an atomic amount to printable money string and check the amount here
   assert(str_find(output.c_str, "Spending from address index "));
+
+  // Sanity check sending amount
+  {
+    char const *amount_label = str_find(output.c_str, "Sending ");
+    char const *amount_str   = str_skip_to_next_digit(amount_label);
+    assert(amount_label);
+    result.atomic_amount = str_parse_loki_amount(amount_str);
+    assert(result.atomic_amount == (amount * LOKI_ATOMIC_UNITS));
+  }
+
+  // Extract fee
+  {
+    char const *fee_label = str_find(output.c_str, "The transaction fee is");
+    char const *fee_str   = str_skip_to_next_digit(fee_label);
+    assert(fee_label);
+    result.fee = str_parse_loki_amount(fee_str);
+  }
+
   output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Is this okay?
 
-  assert(str_find(output.c_str, "Transaction successfully submitted, transaction <"));
-  char const *tx_id_start = str_find(output.c_str, "<");
-  tx_id_start++;
+  // Extract TX ID
+  {
+    assert(str_find(output.c_str, "Transaction successfully submitted, transaction <"));
+    char const *id_start = str_find(output.c_str, "<");
+    result.id.append("%.*s", result.id.max(), ++id_start);
+  }
 
-  loki_transaction_id result = {};
-  result.append("%.*s", result.max(), tx_id_start);
+  return result;
+}
+
+loki_transaction wallet_transfer(loki_addr const *dest, uint64_t amount)
+{
+  loki_transaction result = wallet_transfer(dest->c_str, amount);
   return result;
 }
 

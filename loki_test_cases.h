@@ -15,6 +15,7 @@ struct test_result
   void print_result();
 };
 
+// TODO(doyle): These macros suck.
 #define STR_EXPECT(test_result_var, src, expect_str) \
 if (!str_match(src, expect_str)) \
 { \
@@ -25,7 +26,7 @@ if (!str_match(src, expect_str)) \
 }
 
 #define EXPECT(test_result_var, expr, fmt, ...) \
-if (!expr) \
+if (!(expr)) \
 { \
   test_result_var.failed = true; \
   test_result_var.received_str = #expr; \
@@ -37,5 +38,6 @@ test_result prepare_registration__solo_auto_stake                    ();
 test_result prepare_registration__100_percent_operator_cut_auto_stake();
 test_result stake__from_subaddress();
 test_result register_service_node__4_stakers();
+test_result transfer__expect_fee_amount();
 
 #endif // LOKI_TEST_CASES_H

@@ -151,7 +151,8 @@ bool wallet_stake(loki_snode_key const *service_node_key, loki_addr const *contr
 #endif
 
   loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::wallet, "y"); // Confirm?
-  assert(str_find(output.c_str, "Transaction successfully submitted, transaction <"));
+  if (!str_find(output.c_str, "Transaction successfully submitted, transaction <"))
+    return false;
 
   if (tx_id)
   {

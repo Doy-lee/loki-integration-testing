@@ -91,7 +91,7 @@ void write_to_stdin_mem(shared_mem_type type, char const *cmd, int cmd_len)
   // much as possible. This is our bottleneck. But right now, if we write and
   // read too fast, we might skip certain outputs and get blocked waiting for
   // a result.
-  os_sleep_ms(500);
+  os_sleep_ms(600);
 }
 
 loki_scratch_buf read_from_stdout_mem(shared_mem_type type)
@@ -113,7 +113,7 @@ loki_scratch_buf read_from_stdout_mem(shared_mem_type type)
     // much as possible. This is our bottleneck. But right now, if we write and
     // read too fast, we might skip certain outputs and get blocked waiting for
     // a result.
-    os_sleep_ms(500);
+    os_sleep_ms(600);
     shared_mem->Open();
 
     // NOTE: If commands are completed quickly the timestamps may still be the same.
@@ -273,12 +273,25 @@ int main(int, char **)
     printf("%s\n", result.data);
   }
 #else
-  prepare_registration__solo_auto_stake().print_result();
-  prepare_registration__100_percent_operator_cut_auto_stake().print_result();
-  stake__from_subaddress().print_result();
-  transfer__expect_fee_amount().print_result();
-  register_service_node__4_stakers().print_result();
+  test_result results[128];
+  int results_index = 0;
 
+#define RUN_TEST(test_function) \
+  results[results_index++] = test_function(); \
+  print_test_results(&results[results_index-1])
+
+  RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
+  // RUN_TEST(prepare_registration__solo_auto_stake);
+  // RUN_TEST(register_service_node__4_stakers);
+  // RUN_TEST(stake__from_subaddress);
+  // RUN_TEST(transfer__expect_fee_amount);
+
+  int num_tests_passed = 0;
+  for (int i = 0; i < results_index; ++i)
+    num_tests_passed += static_cast<int>(!results[i].failed);
+
+  printf("\nTests passed %d/%d\n", num_tests_passed, results_index);
 #endif
+
   return 0;
 }

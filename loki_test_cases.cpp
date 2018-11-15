@@ -9,21 +9,54 @@
 #define LOKI_DAEMON_IMPLEMENTATION
 #include "loki_daemon.h"
 
-#include <chrono>
-#include <thread>
+#define EXPECT_STR(test_result_var, src, expect_str, fmt, ...) \
+if (!str_match(src, expect_str)) \
+{ \
+  test_result_var.failed   = true; \
+  test_result_var.fail_msg = loki_scratch_buf("[%s != %s] " fmt, src, expect_str, ## __VA_ARGS__); \
+  return test_result_var; \
+}
 
-void test_result::print_result()
+#define EXPECT(test_result_var, expr, fmt, ...) \
+if (!(expr)) \
+{ \
+  test_result_var.failed   = true; \
+  test_result_var.fail_msg = loki_scratch_buf("[" #expr "] ", fmt, ## __VA_ARGS__); \
+  return test_result_var; \
+}
+
+#define LOKI_ANSI_COLOR_RED     "\x1b[31m"
+#define LOKI_ANSI_COLOR_GREEN   "\x1b[32m"
+#define LOKI_ANSI_COLOR_YELLOW  "\x1b[33m"
+#define LOKI_ANSI_COLOR_BLUE    "\x1b[34m"
+#define LOKI_ANSI_COLOR_MAGENTA "\x1b[35m"
+#define LOKI_ANSI_COLOR_CYAN    "\x1b[36m"
+#define LOKI_ANSI_COLOR_RESET   "\x1b[0m"
+
+void print_test_results(test_result const *test)
 {
-  if (failed)
+  int const TARGET_LEN = 100;
+
+  if (test->failed)
   {
-    printf("  %s: FAILED\n",       name.data);
-    printf("      Expected: %s\n", expected_str.data);
-    printf("      Received: %s\n", received_str.data);
-    printf("      Context:  %s\n", captured_stdout.data);
+    char const STATUS[]     = "FAILED";
+    int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
+    int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
+
+    fprintf(stdout, "%s", test->name.c_str);
+    for (int i = 0; i < remaining_len; ++i) fputc('.', stdout);
+    fprintf(stdout, LOKI_ANSI_COLOR_RED "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
+    fprintf(stdout, "  Message: %s\n", test->fail_msg.c_str);
   }
   else
   {
-    printf("  %s: PASSED\n", name.data);
+    char const STATUS[]     = "OK!";
+    int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
+    int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
+
+    fprintf(stdout, "%s", test->name.c_str);
+    for (int i = 0; i < remaining_len; ++i) fputc('.', stdout);
+    fprintf(stdout, LOKI_ANSI_COLOR_GREEN "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
   }
 }
 
@@ -51,10 +84,10 @@ test_result prepare_registration__solo_auto_stake()
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Contribute entire stake?
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet1); // Operator address
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Auto restake?
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm information correct?
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm information correct?
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str      = str_find(&result.captured_stdout, "register_service_node");
+  char const *register_str      = str_find(&output, "register_service_node");
   char const *prev              = register_str;
 
   char const *auto_stake        = str_skip_to_next_word(&prev);
@@ -62,11 +95,11 @@ test_result prepare_registration__solo_auto_stake()
   char const *wallet_addr       = str_skip_to_next_word(&prev);
   char const *addr1_portions    = str_skip_to_next_word(&prev);
 
-  STR_EXPECT(result, register_str,      "register_service_node");
-  STR_EXPECT(result, auto_stake,        "auto");
-  STR_EXPECT(result, operator_portions, "18446744073709551612");
-  STR_EXPECT(result, wallet_addr,       wallet1);
-  STR_EXPECT(result, addr1_portions,    "18446744073709551612");
+  EXPECT_STR(result, register_str,      "register_service_node", "Could not find expected str in: %s", output.c_str);
+  EXPECT_STR(result, auto_stake,        "auto",                  "Could not find expected str in: %s", output.c_str);
+  EXPECT_STR(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", output.c_str);
+  EXPECT_STR(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", output.c_str);
+  EXPECT_STR(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", output.c_str);
 
   return result;
 }
@@ -95,10 +128,10 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, wallet2); // Contrib 1 address
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // How much loki to reserve for contributor 1
   write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Autostake
-  result.captured_stdout = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
+  loki_scratch_buf output = write_to_stdin_mem_and_get_result(shared_mem_type::daemon, "y"); // Confirm
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str     = str_find(&result.captured_stdout, "register_service_node");
+  char const *register_str     = str_find(&output, "register_service_node");
   char const *prev             = register_str;
 
   char const *auto_stake       = str_skip_to_next_word(&prev);
@@ -108,13 +141,13 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   char const *wallet2_addr     = str_skip_to_next_word(&prev);
   char const *wallet2_portions = str_skip_to_next_word(&prev);
 
-  STR_EXPECT(result, register_str,     "register_service_node");
-  STR_EXPECT(result, auto_stake,       "auto");
-  STR_EXPECT(result, operator_cut,     "18446744073709551612");
-  STR_EXPECT(result, wallet1_addr,     wallet1);
-  STR_EXPECT(result, wallet1_portions, "9223372036854775806"); // exactly 50% of staking portions
-  STR_EXPECT(result, wallet2_addr,     wallet2);
-  STR_EXPECT(result, wallet2_portions, "4611686018427387903"); // exactly 25% of staking portions
+  EXPECT_STR(result, register_str,     "register_service_node", "Could not find expected str in: ", output.c_str);
+  EXPECT_STR(result, auto_stake,       "auto",                  "Could not find expected str in: ", output.c_str);
+  EXPECT_STR(result, operator_cut,     "18446744073709551612",  "Could not find expected str in: ", output.c_str);
+  EXPECT_STR(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", output.c_str);
+  EXPECT_STR(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", output.c_str); // exactly 50% of staking portions
+  EXPECT_STR(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", output.c_str);
+  EXPECT_STR(result, wallet2_portions, "4611686018427387903",   "Could not find expected str in: ", output.c_str); // exactly 25% of staking portions
 
   return result;
 }
@@ -125,11 +158,11 @@ test_result stake__from_subaddress()
   INITIALISE_TEST_CONTEXT(result);
 
   daemon_t daemon = create_daemon();
-  start_daemon(&daemon);
   wallet_t operator_wallet = create_wallet();
 
+  start_daemon(&daemon);
   start_wallet(&operator_wallet);
-  LOKI_DEFER { wallet_exit(); };
+  LOKI_DEFER { wallet_exit(); daemon_exit(); };
 
   wallet_set_default_testing_settings();
   EXPECT(result, wallet_set_daemon(&daemon), "Could not set wallet with daemon at port %d", daemon.rpc_port);
@@ -271,6 +304,6 @@ test_result transfer__expect_fee_amount()
   int64_t delta         = LOKI_ABS(fee_estimate - fee);
   int64_t const epsilon = 10000000;
 
-  EXPECT(result, delta < epsilon, "Unexpected fee"); // TODO(doyle): Improve macro to take __va_args__
+  EXPECT(result, delta < epsilon, "Unexpected difference in fee estimate: %zd, fee: %zd, with delta: %zd >= epsilon: %zd", fee_estimate, fee, delta, epsilon);
   return result;
 }

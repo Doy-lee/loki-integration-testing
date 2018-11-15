@@ -53,12 +53,12 @@ void wallet_set_default_testing_settings(wallet_params const params)
   // and skipping the other
   loki_buffer<64> ask_password("set ask-password %d", params.disable_asking_password ? 0 : 1);
   write_to_stdin_mem(wallet, ask_password.c_str);
-  os_sleep_ms(500);
+  os_sleep_ms(1000);
   read_from_stdout_mem(wallet);
 
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
   write_to_stdin_mem(wallet, refresh_height.c_str);
-  os_sleep_ms(500);
+  os_sleep_ms(1000);
   read_from_stdout_mem(wallet);
 }
 

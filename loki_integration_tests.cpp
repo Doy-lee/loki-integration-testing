@@ -273,9 +273,9 @@ int main(int, char **)
     printf("%s\n", result.data);
   }
 #else
-  // prepare_registration__solo_auto_stake().print_result();
-  // prepare_registration__100_percent_operator_cut_auto_stake().print_result();
-  // stake__from_subaddress().print_result();
+  prepare_registration__solo_auto_stake().print_result();
+  prepare_registration__100_percent_operator_cut_auto_stake().print_result();
+  stake__from_subaddress().print_result();
   transfer__expect_fee_amount().print_result();
   register_service_node__4_stakers().print_result();
 

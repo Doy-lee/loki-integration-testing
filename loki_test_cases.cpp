@@ -300,6 +300,7 @@ test_result stake__disallow_insufficient_stake_w_not_reserved_contributor()
   INITIALISE_TEST_CONTEXT(result);
   start_daemon_params daemon_params = {};
   daemon_t daemon                   = create_and_start_daemon(daemon_params);
+  LOKI_DEFER { daemon_exit(); };
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
@@ -354,6 +355,7 @@ test_result stake__allow_insufficient_stake_w_reserved_contributor()
   INITIALISE_TEST_CONTEXT(result);
   start_daemon_params daemon_params = {};
   daemon_t daemon                   = create_and_start_daemon(daemon_params);
+  LOKI_DEFER { daemon_exit(); };
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;

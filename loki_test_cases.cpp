@@ -348,6 +348,77 @@ test_result stake__disallow_insufficient_stake_w_not_reserved_contributor()
   return result;
 }
 
+test_result stake__allow_insufficient_stake_w_reserved_contributor()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+  start_daemon_params daemon_params = {};
+  daemon_t daemon                   = create_and_start_daemon(daemon_params);
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+
+  // Setup wallet 1 service node
+  loki_addr wallet1_addr = {};
+  wallet_t wallet1       = create_wallet(daemon_params.nettype);
+  {
+    start_wallet(&wallet1, wallet_params);
+    wallet_set_default_testing_settings();
+    LOKI_DEFER { wallet_exit(); };
+
+    wallet_address(0, &wallet1_addr);
+    wallet_mine_atleast_n_blocks(50, LOKI_SECONDS_TO_MS(1));
+  }
+
+  loki_addr wallet2_addr = {};
+  wallet_t wallet2       = create_wallet(daemon_params.nettype);
+  {
+    start_wallet(&wallet2, wallet_params);
+    wallet_set_default_testing_settings();
+    LOKI_DEFER { wallet_exit(); };
+
+    wallet_set_default_testing_settings();
+    wallet_address(0, &wallet2_addr);
+    wallet_mine_atleast_n_blocks(50, LOKI_SECONDS_TO_MS(1));
+  }
+
+  {
+    start_wallet(&wallet1, wallet_params);
+    LOKI_DEFER { wallet_exit(); };
+
+    loki_scratch_buf registration_cmd                     = {};
+    daemon_prepare_registration_params params             = {};
+    params.open_pool                                      = true;
+    params.contributors[params.num_contributors].addr     = wallet1_addr;
+    params.contributors[params.num_contributors++].amount = 25;
+    params.contributors[params.num_contributors].addr     = wallet2_addr;
+    params.contributors[params.num_contributors++].amount = 50;
+    daemon_prepare_registration(&params, &registration_cmd);
+
+    wallet_register_service_node(registration_cmd.c_str);
+    wallet_mine_atleast_n_blocks(1, 100 /*mining_duration_in_ms*/);
+    EXPECT(result, daemon_print_sn_status(), "Service node failed to register");
+  }
+
+  loki_snode_key snode_key = {};
+  EXPECT(result, daemon_print_sn_key(&snode_key), "Failed to print service node key");
+
+  // Wallet 2 try to stake with insufficient balance, should be allowed if they have reserved a spot
+  {
+    start_wallet(&wallet2, wallet_params);
+    wallet_set_default_testing_settings();
+    LOKI_DEFER { wallet_exit(); };
+
+    EXPECT(result, wallet_stake(&snode_key, &wallet2_addr, 10),
+        "A service node registration with a reserved contributor should allow staking in insufficient parts.");
+  }
+
+  // TODO(doyle): You should mine, then parse the results of print_sn_status to make sure the 10 loki was accepted
+  // Right now this only checks that the wallet allows you to, it will warn you, that you need to contribute more
+  // but it will still let you and it should update the registration status with the 10 loki.
+  return result;
+}
+
 test_result stake__from_subaddress()
 {
   test_result result = {};

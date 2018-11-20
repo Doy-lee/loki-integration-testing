@@ -160,7 +160,7 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
     itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, owner_amount.c_str); // How much loki to reserve?
 
     int num_extra_contribs             = params->num_contributors - 1;
-    char const *num_extra_contribs_str = (num_extra_contribs == 2) ? "2" : "3";
+    char const *num_extra_contribs_str = (num_extra_contribs == 1) ? "1" : (num_extra_contribs == 2) ? "2" : "3";
     itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, "y");                    // Do you want to reserve portions of the stake for other contribs?
     itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, num_extra_contribs_str); // Number of additional contributors
     itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, owner->addr.c_str); // Operator address
@@ -170,7 +170,12 @@ bool daemon_prepare_registration(daemon_prepare_registration_params const *param
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
       itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, contributor_amount.c_str); // How much loki to reserve for contributor
-      itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, contributor->addr.c_str);  // Contrib address
+      output = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, contributor->addr.c_str);  // Contrib address
+    }
+
+    if (params->open_pool)
+    {
+      itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, "y"); // You will leave remaining portion for open to contribution etc.
     }
 
     itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, auto_stake_str); // Autostake

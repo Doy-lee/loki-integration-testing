@@ -352,14 +352,15 @@ int main(int, char **)
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
 
-  // RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
-  // RUN_TEST(prepare_registration__solo_auto_stake);
-  // RUN_TEST(register_service_node__4_stakers);
-  // RUN_TEST(register_service_node__grace_period);
+  RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
+  RUN_TEST(prepare_registration__solo_auto_stake);
+  RUN_TEST(register_service_node__4_stakers);
+  RUN_TEST(register_service_node__grace_period);
   RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  // RUN_TEST(stake__from_subaddress);
-  // RUN_TEST(transfer__expect_fee_amount);
-  // RUN_TEST(transfer__expect_fee_amount_bulletproofs);
+  RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
+  RUN_TEST(stake__from_subaddress);
+  RUN_TEST(transfer__expect_fee_amount);
+  RUN_TEST(transfer__expect_fee_amount_bulletproofs);
 
   int num_tests_passed = 0;
   for (int i = 0; i < results_index; ++i)

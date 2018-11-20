@@ -8,21 +8,22 @@
 //
 #include "loki_integration_tests.h"
 
-bool        char_is_alpha              (char ch);
-bool        char_is_num                (char ch);
-bool        char_is_alphanum           (char ch);
-bool        char_is_whitespace         (char ch);
-char const *str_find                   (char const *src,              char const *find);
-char const *str_find                   (char const *src, int src_len, char const *find, int find_len = -1);
-char const *str_find                   (loki_scratch_buf const *buf,  char const *find, int find_len = -1);
-bool        str_match                  (char const *src,              char const *find, int find_len = -1);
-uint64_t    str_parse_loki_amount      (char const *amount);
-char const *str_skip_to_next_digit     (char const *src);
-char const *str_skip_to_next_alphanum  (char const *src);
-char const *str_skip_to_next_alpha_char(char const *src);
-char const *str_skip_to_next_whitespace(char const *src);
-char const *str_skip_to_next_word      (char const **src);
-char const *str_skip_whitespace        (char const *src);
+bool        char_is_alpha                 (char ch);
+bool        char_is_num                   (char ch);
+bool        char_is_alphanum              (char ch);
+bool        char_is_whitespace            (char ch);
+char const *str_find                      (char const *src,              char const *find);
+char const *str_find                      (char const *src, int src_len, char const *find, int find_len = -1);
+char const *str_find                      (loki_scratch_buf const *buf,  char const *find, int find_len = -1);
+bool        str_match                     (char const *src,              char const *find, int find_len = -1);
+uint64_t    str_parse_loki_amount         (char const *amount);
+char const *str_skip_to_next_digit        (char const *src);
+char const *str_skip_to_next_digit_inplace(char const **src);
+char const *str_skip_to_next_alphanum     (char const *src);
+char const *str_skip_to_next_alpha_char   (char const *src);
+char const *str_skip_to_next_whitespace   (char const *src);
+char const *str_skip_to_next_word         (char const **src);
+char const *str_skip_whitespace           (char const *src);
 
 #endif // LOKI_STR_H
 
@@ -93,7 +94,7 @@ uint64_t str_parse_loki_amount(char const *amount)
   atomic_ptr++;
 
   uint64_t whole_part  = atoi(amount) * LOKI_ATOMIC_UNITS;
-  uint64_t atomic_part = atoi(++atomic_ptr);
+  uint64_t atomic_part = atoi(atomic_ptr);
 
   uint64_t result = whole_part + atomic_part;
   return result;
@@ -104,6 +105,13 @@ char const *str_skip_to_next_digit(char const *src)
   char const *result = src;
   while (result && !char_is_num(result[0])) ++result;
   return result;
+}
+
+char const *str_skip_to_next_digit_inplace(char const **src)
+{
+  char const **result = src;
+  while ((*result) && !char_is_num((*result)[0])) ++(*result);
+  return (*result);
 }
 
 bool char_is_alphanum(char ch)

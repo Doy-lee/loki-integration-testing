@@ -44,8 +44,6 @@ loki_transaction wallet_register_service_node       (char const *registration_cm
 
 #include <stdint.h>
 
-#define LOKI_ATOMIC_UNITS 1000000000ULL
-
 void wallet_set_default_testing_settings(wallet_params const params)
 { 
   itest_shared_mem_type const wallet = itest_shared_mem_type::wallet;

@@ -94,9 +94,9 @@ void start_daemon_params::add_hardfork(int version, int height)
 
 
   // TODO(doyle): This sucks. But, right now overriding hard forks in the daemon
-  // means we need to go into mainnet mode. There's a refresh error I haven't
+  // means we need to go into fakenet mode. There's a refresh error I haven't
   // figured out yet.
-  this->nettype = loki_nettype::mainnet;
+  this->nettype = loki_nettype::fakenet;
 }
 
 void itest_write_to_stdin_mem(itest_shared_mem_type type, char const *cmd, int cmd_len)
@@ -209,7 +209,7 @@ void start_daemon(daemon_t *daemon, start_daemon_params params)
     }
 
     arg_buf.append("\\\" ");
-    LOKI_ASSERT(params.nettype == loki_nettype::mainnet);
+    LOKI_ASSERT(params.nettype == loki_nettype::fakenet);
   }
   else
   {
@@ -265,6 +265,8 @@ wallet_t create_wallet(loki_nettype nettype)
   loki_scratch_buf arg_buf = {};
   if (result.nettype == loki_nettype::testnet)
     arg_buf.append("--testnet ");
+  else if (result.nettype == loki_nettype::fakenet)
+    arg_buf.append("--fakenet ");
   else if (result.nettype == loki_nettype::stagenet)
     arg_buf.append("--stagenet ");
 
@@ -295,6 +297,8 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
 
   if (wallet->nettype == loki_nettype::testnet)
     arg_buf.append("--testnet ");
+  else if (wallet->nettype == loki_nettype::fakenet)
+    arg_buf.append("--fakenet ");
   else if (wallet->nettype == loki_nettype::stagenet)
     arg_buf.append("--stagenet ");
 
@@ -348,13 +352,13 @@ int main(int, char **)
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
 
-  RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
-  RUN_TEST(prepare_registration__solo_auto_stake);
-  RUN_TEST(register_service_node__4_stakers);
+  // RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
+  // RUN_TEST(prepare_registration__solo_auto_stake);
+  // RUN_TEST(register_service_node__4_stakers);
   RUN_TEST(register_service_node__grace_period);
-  RUN_TEST(stake__from_subaddress);
-  RUN_TEST(transfer__expect_fee_amount);
-  RUN_TEST(transfer__expect_fee_amount_bulletproofs);
+  // RUN_TEST(stake__from_subaddress);
+  // RUN_TEST(transfer__expect_fee_amount);
+  // RUN_TEST(transfer__expect_fee_amount_bulletproofs);
 
   int num_tests_passed = 0;
   for (int i = 0; i < results_index; ++i)

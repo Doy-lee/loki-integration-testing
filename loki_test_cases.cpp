@@ -284,7 +284,6 @@ test_result register_service_node__grace_period()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-#if 1
   start_daemon_params daemon_params = {};
   daemon_params.add_hardfork(7,   0);
   daemon_params.add_hardfork(8,  10);
@@ -296,39 +295,56 @@ test_result register_service_node__grace_period()
   wallet_params.daemon              = &daemon;
   wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
   LOKI_DEFER { daemon_exit(); wallet_exit(); };
-
   wallet_set_default_testing_settings();
-  wallet_mine_until_unlocked_balance(45000 * LOKI_ATOMIC_UNITS, LOKI_SECONDS_TO_MS(40)/*mining_duration_in_ms*/);
 
+  // Mine enough funds for a registration
   loki_addr my_addr = {};
-  wallet_address(0, &my_addr);
-  wallet_sweep_all(my_addr.c_str);
+  {
+    wallet_mine_until_unlocked_balance(100 * LOKI_ATOMIC_UNITS, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
+    wallet_address(0, &my_addr);
+    wallet_sweep_all(my_addr.c_str);
+    os_sleep_ms(2000); // TODO(doyle): Hack. Sweep all is inevitably going to construct multiple tx's and will take time to write out to stdout
+    wallet_mine_until_unlocked_balance(100 * LOKI_ATOMIC_UNITS, 100/*mining_duration_in_ms*/);
+  }
 
-  wallet_mine_until_unlocked_balance(45000 * LOKI_ATOMIC_UNITS, 500/*mining_duration_in_ms*/);
-
+  // Register the service node
   daemon_prepare_registration_params registration_params = {};
-  registration_params.num_contributors                   = 1;
-  registration_params.contributors[0].addr               = my_addr;
-  registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
+  {
+    registration_params.num_contributors                   = 1;
+    registration_params.contributors[0].addr               = my_addr;
+    registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
 
-  loki_scratch_buf registration_cmd = {};
-  EXPECT(result, daemon_prepare_registration(&registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
-  wallet_register_service_node(registration_cmd.c_str);
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration(&registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
+    wallet_register_service_node(registration_cmd.c_str);
+    wallet_mine_atleast_n_blocks(1, 50 /*mining_duration_in_ms*/);
 
-  int const TESTNET_STAKING_LOCK_BLOCKS = 30 * 24 * 2;
-  int const STAKING_EXCESS              = 20;
-  daemon_print_sn_status();
-#else
-  daemon_prepare_registration_params registration_params = {};
-  registration_params.num_contributors                   = 1;
-  registration_params.contributors[0].addr               = "L9UjRWn9FU1Qua8p1UAZGiTTFTd5YKuqHhopPDHQRXrudjdPUxgaQJ2QDH4hK3FhGkhqZVfFitKA2ixMoAukFvQ7U97fHKs";
-  registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
+    // Check service node registered
+    EXPECT(result, daemon_print_sn_status(), "Service node was not registered properly, print_sn_status returned data that wasn't parsable");
+  }
 
-  loki_scratch_buf registration_cmd = {};
-  EXPECT(result, daemon_prepare_registration(&registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
-  wallet_register_service_node(registration_cmd.c_str);
+  // Mine until within the grace re-registration range
+  {
+    int const STAKING_DURATION = 30; // TODO(doyle): Workaround for inability to print_sn_status
+    daemon_status_t status     = daemon_status();
+    int blocks_to_mine         = STAKING_DURATION - LOKI_STAKING_EXCESS_BLOCKS;
+    wallet_mine_atleast_n_blocks(blocks_to_mine, 50/*mining_duration_in_ms*/);
 
-#endif
+    uint64_t wallet_height = wallet_status();
+    EXPECT(result, wallet_height <= status.height + STAKING_DURATION,
+        "We mined too many blocks! We need to mine within %d blocks of expiry and re-register within that time frame to test the grace period. The current wallet height: %d, node expired at height: %d",
+        LOKI_STAKING_EXCESS_BLOCKS, wallet_height, status.height + STAKING_DURATION);
+  }
+
+  // Re-register within this grace period, re-use the registration params
+  {
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration(&registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
+    wallet_register_service_node(registration_cmd.c_str);
+    wallet_mine_atleast_n_blocks(1, 100 /*mining_duration_in_ms*/);
+    EXPECT(result, daemon_print_sn_status(), "Service node was not re-registered properly, print_sn_status returned data that wasn't parsable");
+  }
+
   return result;
 }
 

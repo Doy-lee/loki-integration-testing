@@ -20,9 +20,16 @@ struct daemon_prepare_registration_params
 
 struct daemon_status_t
 {
-  loki_buffer<256> src;
   uint64_t         height;
   uint64_t         hf_version;
+};
+
+// TODO(doyle): We should fill out this struct when print_sn_status is called. But, the way it's implemented there's not a nice way to read the output
+struct daemon_service_node_status_t
+{
+  int registration_height;
+  int expiry_height;
+  int blocks_till_expiry;
 };
 
 void            daemon_exit                ();
@@ -227,9 +234,47 @@ bool daemon_print_sn_key(loki_snode_key *key)
 
 bool daemon_print_sn_status()
 {
+
   loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, "print_sn_status");
   if (str_match("No service node is currently known on the network for:", output.c_str))
     return false;
+
+  return true;
+  // TODO(doyle): Printing out service node information is done using multiple
+  // calls to tools::msg_writer(). Each msg write causes a flush to stdout in
+  // shared memory meaning we only really receive the first/last message by the
+  // time we read the output, so we lose all this information.
+
+#if 0
+  if (status) *status = {};
+  Example
+  Service Node Registration State[1]
+      [0] Service Node: 500385da3592017384965040ee6ec82409cdc0cae8f6e80daf797513fca93265
+          Total Contributed/Staking Requirement: 100.000000000/100.000000000
+          Total Reserved: 100.000000000
+          Registration Height/Expiry Height: 98/148 (in 31 blocks)
+          Expiry Date (Estimated UTC): 2018-11-20 07:40:10 AM (62 minutes in the future)
+          Last Reward At (Block Height/TX Index): 116 / 4294967295
+          Operator Cut (% Of Reward): 100%
+          Operator Address: L6vruB65jVwPf8XnwfKiV6K8BWwSNUhTEQi4rd6Xzanc7AESBDsFPP8fVb2X5onqvxJVFXtV25YcHGV3aPKTJGKDF7qbdsE
+          Last Uptime Proof Received: Not Received Yet
+
+          [0] Contributor: L6vruB65jVwPf8XnwfKiV6K8BWwSNUhTEQi4rd6Xzanc7AESBDsFPP8fVb2X5onqvxJVFXtV25YcHGV3aPKTJGKDF7qbdsE
+              Amount / Reserved: 100.000000000 / 100.000000000
+
+  char const *registration_height_label = str_find(output.c_str, "Registration Height/Expiry Height");
+  char const *registration_height       = str_skip_to_next_digit(registration_height_label);
+  status->registration_height           = atoi(registration_height);
+
+  char const *expiry_height = str_find(registration_height, "/");
+  expiry_height++;
+  status->expiry_height     = atoi(expiry_height);
+
+  char const *blocks_till_expiry = expiry_height;
+  str_skip_to_next_whitespace_inplace(&blocks_till_expiry);
+  str_skip_to_next_digit_inplace(&blocks_till_expiry);
+  status->blocks_till_expiry     = atoi(blocks_till_expiry);
+#endif
 
   return true;
 }
@@ -255,10 +300,8 @@ daemon_status_t daemon_status()
 
   daemon_status_t result  = {};
   loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, "status").c_str;
-  assert(output.len < result.src.max());
-  result.src = output.c_str;
 
-  char const *ptr = result.src.c_str;
+  char const *ptr = output.c_str;
   assert(str_match(ptr, "Height: "));
   char const *height_str = str_skip_to_next_digit_inplace(&ptr);
   result.height = atoi(height_str);

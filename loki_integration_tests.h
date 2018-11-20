@@ -33,8 +33,11 @@
 #define LOKI_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define LOKI_MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define LOKI_ABS(a) (((a) < 0) ? (-a) : (a))
-#define LOKI_SECONDS_TO_MS(val) ((val) * 1000)
 #define LOKI_MS_TO_SECONDS(val) ((val) / 1000)
+#define LOKI_SECONDS_TO_MS(val) ((val) * 1000)
+#define LOKI_MINUTES_TO_S(val) ((val) * 60)
+#define LOKI_HOURS_TO_S(val) ((val) * LOKI_MINUTES_TO_S(60))
+#define LOKI_DAYS_TO_S(val) ((val) * LOKI_HOURS_TO_S(24))
 
 template <typename procedure>
 struct loki_defer_
@@ -107,10 +110,16 @@ void             itest_reset_shared_memory              (itest_reset_type type =
 // Loki Blockchain Primitives
 //
 
-// NOTE: Mainnet addresses are 95 chars, testnet addresses are 97 and + 1 for null terminator.
-using loki_addr           = loki_buffer<97 + 1>;
-using loki_transaction_id = loki_buffer<64 + 1>;
-using loki_snode_key      = loki_buffer<64 + 1>;
+const int      LOKI_CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE     = 10;
+const int      LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW    = 30;
+const uint64_t LOKI_ATOMIC_UNITS                            = 1000000000ULL;
+const int      LOKI_TARGET_DIFFICULTY                       = 120;
+const int      LOKI_STAKING_EXCESS_BLOCKS                   = 20;
+const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(30);
+const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
+using loki_addr                                             = loki_buffer<97 + 1>; // NOTE: Mainnet addresses are 95 chars, testnet addresses are 97 and + 1 for null terminator.
+using loki_transaction_id                                   = loki_buffer<64 + 1>;
+using loki_snode_key                                        = loki_buffer<64 + 1>;
 
 struct loki_contributor
 {
@@ -135,6 +144,7 @@ struct loki_hardfork
 enum struct loki_nettype
 {
   mainnet,
+  fakenet,
   testnet,
   stagenet,
 };

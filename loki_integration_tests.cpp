@@ -355,7 +355,8 @@ int main(int, char **)
   // RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
   // RUN_TEST(prepare_registration__solo_auto_stake);
   // RUN_TEST(register_service_node__4_stakers);
-  RUN_TEST(register_service_node__grace_period);
+  // RUN_TEST(register_service_node__grace_period);
+  RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
   // RUN_TEST(stake__from_subaddress);
   // RUN_TEST(transfer__expect_fee_amount);
   // RUN_TEST(transfer__expect_fee_amount_bulletproofs);

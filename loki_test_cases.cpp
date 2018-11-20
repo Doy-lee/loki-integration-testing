@@ -152,61 +152,6 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   return result;
 }
 
-test_result stake__from_subaddress()
-{
-  test_result result = {};
-  INITIALISE_TEST_CONTEXT(result);
-
-  start_daemon_params daemon_params = {};
-  daemon_t daemon                   = create_and_start_daemon(daemon_params);
-
-  start_wallet_params wallet_params = {};
-  wallet_params.daemon              = &daemon;
-  wallet_t operator_wallet          = create_and_start_wallet(daemon_params.nettype, wallet_params);
-  LOKI_DEFER { wallet_exit(); daemon_exit(); };
-
-  wallet_set_default_testing_settings();
-  EXPECT(result, wallet_set_daemon(&daemon), "Could not set wallet with daemon at port 127.0.0.1:%d", daemon.rpc_port);
-  wallet_mine_atleast_n_blocks(100, LOKI_SECONDS_TO_MS(4));
-
-  loki_addr subaddr = wallet_address_new();
-  {
-    loki_addr check = {};
-    wallet_address(1, &check);
-    EXPECT(result, strcmp(subaddr.c_str, check.c_str) == 0, "Subaddresses did not match, expected: %s, received: %s", subaddr.c_str, check.c_str);
-  }
-
-  loki_addr main_addr = {};
-  wallet_address(0, &main_addr);
-
-  wallet_transfer(&subaddr, 30);
-  wallet_address(1);
-  for (uint64_t subaddr_unlocked_bal = 0; subaddr_unlocked_bal < 30;)
-  {
-    wallet_mine_atleast_n_blocks(1);
-    wallet_get_balance(&subaddr_unlocked_bal);
-  }
-
-  loki_scratch_buf registration_cmd = {};
-  {
-    daemon_prepare_registration_params params = {};
-    params.open_pool                          = true;
-    params.num_contributors                   = 1;
-    params.contributors[0].addr               = main_addr;
-    params.contributors[0].amount             = 25;
-    daemon_prepare_registration(&params, &registration_cmd);
-  }
-
-  wallet_register_service_node(registration_cmd.c_str);
-  wallet_mine_atleast_n_blocks(1);
-
-  loki_snode_key snode_key = {};
-  EXPECT(result, daemon_print_sn_key(&snode_key), "Failed to print sn key");
-
-  wallet_stake(&snode_key, &subaddr, 25);
-  return result;
-}
-
 test_result register_service_node__4_stakers()
 {
   test_result result = {};
@@ -345,6 +290,116 @@ test_result register_service_node__grace_period()
     EXPECT(result, daemon_print_sn_status(), "Service node was not re-registered properly, print_sn_status returned data that wasn't parsable");
   }
 
+  return result;
+}
+
+
+test_result stake__disallow_insufficient_stake_w_not_reserved_contributor()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+  start_daemon_params daemon_params = {};
+  daemon_t daemon                   = create_and_start_daemon(daemon_params);
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+
+  // Setup wallet 1 service node
+  loki_addr main_addr = {};
+  {
+    wallet_t wallet = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    LOKI_DEFER { wallet_exit(); };
+    wallet_set_default_testing_settings();
+
+    wallet_address(0, &main_addr);
+    wallet_mine_atleast_n_blocks(100, LOKI_SECONDS_TO_MS(4));
+    loki_scratch_buf registration_cmd = {};
+    {
+      daemon_prepare_registration_params params = {};
+      params.open_pool                          = true;
+      params.num_contributors                   = 1;
+      params.contributors[0].addr               = main_addr;
+      params.contributors[0].amount             = 25;
+      daemon_prepare_registration(&params, &registration_cmd);
+    }
+
+    wallet_register_service_node(registration_cmd.c_str);
+    wallet_mine_atleast_n_blocks(1, 100 /*mining_duration_in_ms*/);
+    EXPECT(result, daemon_print_sn_status(), "Service node failed to register");
+  }
+
+  loki_snode_key snode_key = {};
+  EXPECT(result, daemon_print_sn_key(&snode_key), "Failed to print service node key");
+
+  // Wallet 2 try to stake with insufficient balance
+  {
+    wallet_t contributor = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    LOKI_DEFER { wallet_exit(); };
+    wallet_set_default_testing_settings();
+
+    loki_addr contributor_addr = {};
+    wallet_address(0, &contributor_addr);
+    wallet_mine_until_unlocked_balance(20, LOKI_SECONDS_TO_MS(1)/*mining_duration_in_ms*/);
+
+    EXPECT(result, wallet_stake(&snode_key, &contributor_addr, 10) == false,
+        "An open service node registration should disallow an insufficient stake, otherwise we lock up the funds for no reason.");
+  }
+
+  return result;
+}
+
+test_result stake__from_subaddress()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_t daemon                   = create_and_start_daemon(daemon_params);
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+  wallet_t operator_wallet          = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { wallet_exit(); daemon_exit(); };
+
+  wallet_set_default_testing_settings();
+  EXPECT(result, wallet_set_daemon(&daemon), "Could not set wallet with daemon at port 127.0.0.1:%d", daemon.rpc_port);
+  wallet_mine_atleast_n_blocks(100, LOKI_SECONDS_TO_MS(4));
+
+  loki_addr subaddr = wallet_address_new();
+  {
+    loki_addr check = {};
+    wallet_address(1, &check);
+    EXPECT(result, strcmp(subaddr.c_str, check.c_str) == 0, "Subaddresses did not match, expected: %s, received: %s", subaddr.c_str, check.c_str);
+  }
+
+  loki_addr main_addr = {};
+  wallet_address(0, &main_addr);
+
+  wallet_transfer(&subaddr, 30);
+  wallet_address(1);
+  for (uint64_t subaddr_unlocked_bal = 0; subaddr_unlocked_bal < 30;)
+  {
+    wallet_mine_atleast_n_blocks(1);
+    wallet_get_balance(&subaddr_unlocked_bal);
+  }
+
+  loki_scratch_buf registration_cmd = {};
+  {
+    daemon_prepare_registration_params params = {};
+    params.open_pool                          = true;
+    params.num_contributors                   = 1;
+    params.contributors[0].addr               = main_addr;
+    params.contributors[0].amount             = 25;
+    daemon_prepare_registration(&params, &registration_cmd);
+  }
+
+  wallet_register_service_node(registration_cmd.c_str);
+  wallet_mine_atleast_n_blocks(1);
+
+  loki_snode_key snode_key = {};
+  EXPECT(result, daemon_print_sn_key(&snode_key), "Failed to print sn key");
+
+  wallet_stake(&snode_key, &subaddr, 25);
   return result;
 }
 

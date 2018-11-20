@@ -167,9 +167,9 @@ bool wallet_stake(loki_snode_key const *service_node_key, loki_addr const *contr
 
   if (tx_id)
   {
+    *tx_id = {};
     char const *tx_id_start = str_find(output.c_str, "<");
     tx_id_start++;
-
     tx_id->append("%.*s", tx_id->max(), tx_id_start);
   }
 

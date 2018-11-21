@@ -75,20 +75,6 @@ struct loki_buffer
   int  len;
 };
 
-struct state_t
-{
-    int num_wallets       = 0;
-    int num_daemons       = 0;
-    int free_p2p_port     = 1111;
-    int free_rpc_port     = 2222;
-    int free_zmq_rpc_port = 3333;
-
-    shoom::Shm wallet_stdout_shared_mem{"loki_integration_testing_wallet_stdout", 8192};
-    shoom::Shm wallet_stdin_shared_mem {"loki_integration_testing_wallet_stdin",  8192};
-    shoom::Shm daemon_stdout_shared_mem{"loki_integration_testing_daemon_stdout", 8192};
-    shoom::Shm daemon_stdin_shared_mem {"loki_integration_testing_daemon_stdin",  8192};
-};
-
 using loki_scratch_buf = loki_buffer<8192>;
 
 void             os_sleep_s                       (int seconds);

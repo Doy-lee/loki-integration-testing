@@ -12,8 +12,6 @@
 
 #include "loki_daemon.h"
 
-static char global_temp_buf[8192];
-
 FILE *os_launch_process(char const *cmd_line)
 {
   FILE *result = nullptr;
@@ -43,9 +41,23 @@ char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code
 char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
 #endif
 
-static state_t global_state;
-uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
+struct state_t
+{
+    int num_wallets   = 0;
+    int num_daemons   = 0;
+    int free_p2p_port = 1111;
+    int free_rpc_port = 2222;
+    int free_zmq_port = 3333;
 
+    shoom::Shm wallet_stdout_shared_mem{"loki_integration_testing_wallet_stdout", 8192};
+    shoom::Shm wallet_stdin_shared_mem {"loki_integration_testing_wallet_stdin",  8192};
+    shoom::Shm daemon_stdout_shared_mem{"loki_integration_testing_daemon_stdout", 8192};
+    shoom::Shm daemon_stdin_shared_mem {"loki_integration_testing_daemon_stdin",  8192};
+};
+
+static state_t global_state;
+
+uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
 static void make_message(char *msg_buf, int msg_buf_len, char const *msg_data, int msg_data_len)
 {
   uint64_t timestamp = time(nullptr);
@@ -244,22 +256,18 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
 
 daemon_t create_daemon()
 {
-  static int p2p_port = 1111;
-  static int rpc_port = 2222;
-  static int zmq_port = 3333;
-
   daemon_t result     = {};
   result.id           = global_state.num_daemons++;
-  result.p2p_port     = p2p_port++;
-  result.rpc_port     = rpc_port++;
-  result.zmq_rpc_port = zmq_port++;
+  result.p2p_port     = global_state.free_p2p_port++;
+  result.rpc_port     = global_state.free_rpc_port++;
+  result.zmq_rpc_port = global_state.free_zmq_port++;
   return result;
 }
 
 wallet_t create_wallet(loki_nettype nettype)
 {
   wallet_t result = {};
-  result.id       = global_state.num_daemons++;
+  result.id       = global_state.num_wallets++;
   result.nettype  = nettype;
 
   loki_scratch_buf arg_buf = {};

@@ -281,12 +281,13 @@ wallet_t create_wallet(loki_nettype nettype)
   arg_buf.append("--generate-new-wallet ./output/wallet_%d ", result.id);
   arg_buf.append("--password '' ");
   arg_buf.append("--mnemonic-language English ");
-  arg_buf.append("save ");
 
   itest_reset_shared_memory(itest_reset_type::wallet);
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
   os_launch_process(cmd_buf.data);
-  os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init, save and close.
+  os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init
+  itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::wallet, "save");
+  itest_write_to_stdin_mem(itest_shared_mem_type::wallet, "exit");
   return result;
 }
 

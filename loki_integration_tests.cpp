@@ -37,8 +37,8 @@ void os_kill_process(FILE *process)
 char const LOKI_CMD_FMT[]        = "start bin/lokid.exe %s";
 char const LOKI_WALLET_CMD_FMT[] = "start bin/loki-wallet-cli.exe %s";
 #else
-char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash\"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
+char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; exit \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; exit \"";
 #endif
 
 struct state_t
@@ -335,11 +335,6 @@ void itest_reset_shared_memory(itest_reset_type type)
     global_state.wallet_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
     global_state.wallet_stdout_shared_mem.Open();
   }
-
-  // TODO(doyle): This is a workaround, for some reason if I start trying to use
-  // this shared memory too quick(?) The daemon/wallet isn't able to see that it
-  // was initialised.
-  std::this_thread::sleep_for(std::chrono::milliseconds(1 * 1000));
 }
 
 #include <iostream>
@@ -363,6 +358,17 @@ int main(int, char **)
 #define RUN_TEST(test_function) \
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
+
+  // TODO(doyle):
+  //  - locked transfers unlock after the locked time
+  //  - register a service node twice fails before expiry
+  //  - service node expires after staking duration is over
+  //  - check payouts
+  //  - staking funds return
+  //  - show_transfers distinguishes payments
+  //  - creating accounts and subaddresses
+  //  - transferring big amounts of loki
+  //  - transferring big amounts of loki
 
   RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
   RUN_TEST(prepare_registration__solo_auto_stake);

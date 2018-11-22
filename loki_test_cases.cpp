@@ -74,10 +74,9 @@ test_result prepare_registration__solo_auto_stake()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon = create_daemon();
-  start_daemon(&daemon);
+  daemon_t daemon = create_and_start_daemon();
+  LOKI_DEFER { daemon_exit(); };
 
-  LOKI_DEFER { itest_write_to_stdin_mem(itest_shared_mem_type::daemon, "exit"); };
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
 
   itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, "prepare_registration");
@@ -110,9 +109,8 @@ test_result prepare_registration__100_percent_operator_cut_auto_stake()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon = create_daemon();
-  start_daemon(&daemon);
-  LOKI_DEFER { itest_write_to_stdin_mem(itest_shared_mem_type::daemon, "exit"); };
+  daemon_t daemon = create_and_start_daemon();
+  LOKI_DEFER { daemon_exit(); };
 
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
   char const wallet2[] = "T6TZgnpJ2uaC1cqS4E6M6u7QmGA79q2G19ToBHnqWHxMMDocNTiw2phg52XjkAmEZH9V5xQUsaR3cbcTnELE1vXP2YkhEqXad";

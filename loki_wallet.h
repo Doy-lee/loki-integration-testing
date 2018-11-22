@@ -52,12 +52,10 @@ void wallet_set_default_testing_settings(wallet_params const params)
   // and skipping the other
   loki_buffer<64> ask_password("set ask-password %d", params.disable_asking_password ? 0 : 1);
   itest_write_to_stdin_mem(wallet, ask_password.c_str);
-  os_sleep_ms(1000);
   itest_read_from_stdout_mem(wallet);
 
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
   itest_write_to_stdin_mem(wallet, refresh_height.c_str);
-  os_sleep_ms(1000);
   itest_read_from_stdout_mem(wallet);
 }
 
@@ -108,6 +106,7 @@ loki_addr wallet_address_new()
 void wallet_exit()
 {
   itest_write_to_stdin_mem(itest_shared_mem_type::wallet, "exit");
+  os_sleep_ms(500);
 }
 
 uint64_t wallet_get_balance(uint64_t *unlocked_balance)
@@ -316,7 +315,9 @@ uint64_t wallet_mine_until_unlocked_balance(uint64_t desired_unlocked_balance, i
 loki_transaction wallet_register_service_node(char const *registration_cmd)
 {
   loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::wallet, registration_cmd);
-  output                  = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::wallet, "y"); // Confirm?
+  itest_write_to_stdin_mem(itest_shared_mem_type::wallet, "y"); // Confirm?
+  os_sleep_ms(1000);
+  output = itest_read_from_stdout_mem(itest_shared_mem_type::wallet);
 
   LOKI_ASSERT(str_find(output.c_str, "Wait for transaction to be included in a block"));
   // TODO(doyle): The dest should be set to yourself, extract from the registration cmd?

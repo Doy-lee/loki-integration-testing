@@ -58,6 +58,7 @@ static uint64_t amount_to_staking_portions(uint64_t amount)
 void daemon_exit()
 {
   itest_write_to_stdin_mem(itest_shared_mem_type::daemon, "exit");
+  os_sleep_ms(500);
 }
 
 uint64_t daemon_print_height()

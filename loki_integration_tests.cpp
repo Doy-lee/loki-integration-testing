@@ -56,17 +56,23 @@ struct state_t
 };
 
 static state_t global_state;
+static uint32_t global_wallet_write_cmd_index = 0;
+static uint32_t global_daemon_write_cmd_index = 0;
+static uint32_t global_wallet_read_cmd_index = 0;
+static uint32_t global_daemon_read_cmd_index = 0;
 
 uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
-static void make_message(char *msg_buf, int msg_buf_len, char const *msg_data, int msg_data_len)
+static void make_message(itest_shared_mem_type type, char *msg_buf, int msg_buf_len, char const *msg_data, int msg_data_len)
 {
-  uint64_t timestamp = time(nullptr);
-  int total_len      = static_cast<int>(sizeof(timestamp) + sizeof(MSG_MAGIC_BYTES) + msg_data_len);
+  uint32_t *cmd_index = (type == itest_shared_mem_type::wallet) ? &global_wallet_write_cmd_index : &global_daemon_write_cmd_index;
+  (*cmd_index)++;
+
+  int total_len = static_cast<int>(sizeof(*cmd_index) + sizeof(MSG_MAGIC_BYTES) + msg_data_len);
   LOKI_ASSERT(total_len < msg_buf_len);
 
   char *ptr = msg_buf;
-  memcpy(ptr, &timestamp, sizeof(timestamp));
-  ptr += sizeof(timestamp);
+  memcpy(ptr, cmd_index, sizeof(*cmd_index));
+  ptr += sizeof(*cmd_index);
 
   memcpy(ptr, (char *)&MSG_MAGIC_BYTES, sizeof(MSG_MAGIC_BYTES));
   ptr += sizeof(MSG_MAGIC_BYTES);
@@ -77,11 +83,11 @@ static void make_message(char *msg_buf, int msg_buf_len, char const *msg_data, i
   msg_buf[total_len] = 0;
 }
 
-static char const *parse_message(char const *msg_buf, int msg_buf_len, uint64_t *timestamp)
+static char const *parse_message(char const *msg_buf, int msg_buf_len, uint32_t *cmd_index)
 {
   char const *ptr = msg_buf;
-  *timestamp = *((uint64_t const *)ptr);
-  ptr += sizeof(*timestamp);
+  *cmd_index = *((decltype(cmd_index))ptr);
+  ptr += sizeof(*cmd_index);
 
   if ((*(uint32_t const *)ptr) != MSG_MAGIC_BYTES)
     return nullptr;
@@ -117,29 +123,21 @@ void itest_write_to_stdin_mem(itest_shared_mem_type type, char const *cmd, int c
 
   if (cmd_len == -1) cmd_len = static_cast<int>(strlen(cmd));
   LOKI_ASSERT(cmd_len < shared_mem->Size());
-  make_message((char *)shared_mem->Data(), shared_mem->Size(), cmd, cmd_len);
-
-  // TODO(doyle): Make it so we never need to sleep, or reduce this number as
-  // much as possible. This is our bottleneck. But right now, if we write and
-  // read too fast, we might skip certain outputs and get blocked waiting for
-  // a result.
-  os_sleep_ms(600);
+  make_message(type, (char *)shared_mem->Data(), shared_mem->Size(), cmd, cmd_len);
 }
 
 loki_scratch_buf itest_read_from_stdout_mem(itest_shared_mem_type type)
 {
-  static uint64_t wallet_last_timestamp = 0;
-  static uint64_t daemon_last_timestamp = 0;
   static loki_scratch_buf last_output   = {};
-  uint64_t *last_timestamp = nullptr;
 
   shoom::Shm *shared_mem = (type == itest_shared_mem_type::wallet) ? &global_state.wallet_stdout_shared_mem : &global_state.daemon_stdout_shared_mem;
 
-  if (type == itest_shared_mem_type::wallet) last_timestamp = &wallet_last_timestamp;
-  else                                 last_timestamp = &daemon_last_timestamp;
+  uint32_t *last_cmd_index = nullptr;
+  if (type == itest_shared_mem_type::wallet) last_cmd_index = &global_wallet_read_cmd_index;
+  else                                       last_cmd_index = &global_daemon_read_cmd_index;
 
-  char const *output       = nullptr;
-  for(uint64_t timestamp = 0;; timestamp = 0)
+  char const *output = nullptr;
+  for(;;)
   {
     // TODO(doyle): Make it so we never need to sleep, or reduce this number as
     // much as possible. This is our bottleneck. But right now, if we write and
@@ -148,14 +146,13 @@ loki_scratch_buf itest_read_from_stdout_mem(itest_shared_mem_type type)
     os_sleep_ms(600);
     shared_mem->Open();
 
-    // NOTE: If commands are completed quickly the timestamps may still be the same.
-    // TODO(doyle): We should just do an atomic cmd count variable
+    char *data         = reinterpret_cast<char *>(shared_mem->Data());
+    uint32_t cmd_index = 0;
+    output             = parse_message(data, shared_mem->Size(), &cmd_index);
 
-    char *data = reinterpret_cast<char *>(shared_mem->Data());
-    output = parse_message(data, shared_mem->Size(), &timestamp);
-    if (output && ((*last_timestamp) != timestamp || strcmp(output, last_output.c_str) != 0))
+    if (output && *last_cmd_index < cmd_index)
     {
-      (*last_timestamp) = timestamp;
+      (*last_cmd_index) = cmd_index;
       last_output       = output;
       break;
     }
@@ -197,6 +194,9 @@ bool os_file_delete(char const *path)
 
 void start_daemon(daemon_t *daemon, start_daemon_params params)
 {
+  global_daemon_read_cmd_index = 0;
+  global_daemon_write_cmd_index = 0;
+
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--p2p-bind-port %d ",            daemon->p2p_port);
   arg_buf.append("--rpc-bind-port %d ",            daemon->rpc_port);
@@ -281,18 +281,20 @@ wallet_t create_wallet(loki_nettype nettype)
   arg_buf.append("--generate-new-wallet ./output/wallet_%d ", result.id);
   arg_buf.append("--password '' ");
   arg_buf.append("--mnemonic-language English ");
+  arg_buf.append("save ");
 
   itest_reset_shared_memory(itest_reset_type::wallet);
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
   os_launch_process(cmd_buf.data);
   os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init
-  itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::wallet, "save");
-  itest_write_to_stdin_mem(itest_shared_mem_type::wallet, "exit");
   return result;
 }
 
 void start_wallet(wallet_t *wallet, start_wallet_params params)
 {
+  global_wallet_read_cmd_index = 0;
+  global_wallet_write_cmd_index = 0;
+
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--wallet-file ./output/wallet_%d ", wallet->id);
   arg_buf.append("--password '' ");
@@ -346,11 +348,12 @@ int main(int, char **)
   printf("\n");
 #if 0
   itest_reset_shared_memory();
+  // daemon_t daemon = create_and_start_daemon();
   std::string line;
   for (;;line.clear())
   {
     std::getline(std::cin, line);
-    loki_scratch_buf result = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::wallet, line.c_str(), line.size());
+    loki_scratch_buf result = itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type::daemon, line.c_str(), line.size());
     printf("%s\n", result.data);
   }
 #else

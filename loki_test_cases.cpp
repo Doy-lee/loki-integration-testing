@@ -157,10 +157,10 @@ test_result register_service_node__4_stakers()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon            = create_daemon();
+  daemon_t daemon           = create_daemon();
   start_daemon(&daemon);
-  wallet_t  stakers[4]       = {};
-  loki_addr stakers_addr[4]  = {};
+  wallet_t  stakers[4]      = {};
+  loki_addr stakers_addr[4] = {};
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;

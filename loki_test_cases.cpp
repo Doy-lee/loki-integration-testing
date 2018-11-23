@@ -180,7 +180,7 @@ test_result register_service_node__4_stakers()
   };
 
   wallet_t *owner = stakers + 0;
-  wallet_mine_unlock_time_blocks(owner);
+  wallet_mine_atleast_n_blocks(owner, 100);
 
   loki_snode_key snode_key = {};
   daemon_print_sn_key(&daemon, &snode_key);

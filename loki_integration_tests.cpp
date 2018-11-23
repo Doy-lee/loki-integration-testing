@@ -346,7 +346,6 @@ int main(int, char **)
 
   // TODO(doyle):
   //  - locked transfers unlock after the locked time
-  //  - register a service node twice fails before expiry
   //  - service node expires after staking duration is over
   //  - check payouts
   //  - staking funds return
@@ -363,6 +362,7 @@ int main(int, char **)
   RUN_TEST(prepare_registration__solo_auto_stake);
   RUN_TEST(register_service_node__4_stakers);
   RUN_TEST(register_service_node__grace_period);
+  RUN_TEST(register_service_node__cant_register_twice);
   RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
   RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
   RUN_TEST(stake__from_subaddress);

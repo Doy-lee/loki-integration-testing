@@ -31,7 +31,9 @@ void             wallet_mine_atleast_n_blocks       (wallet_t *wallet, int num_b
 inline void      wallet_mine_unlock_time_blocks     (wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
 void             wallet_mine_for_n_milliseconds     (wallet_t *wallet, int milliseconds);
 uint64_t         wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
-loki_transaction wallet_register_service_node       (wallet_t *wallet, char const *registration_cmd);
+
+// TODO(doyle): This should return the transaction
+bool             wallet_register_service_node       (wallet_t *wallet, char const *registration_cmd);
 
 #endif // LOKI_WALLET_H
 
@@ -322,16 +324,14 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
   return unlocked_balance;
 }
 
-loki_transaction wallet_register_service_node(wallet_t *wallet, char const *registration_cmd)
+bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd)
 {
   loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, registration_cmd);
   itest_write_to_stdin_mem(&wallet->shared_mem, "y"); // Confirm?
   os_sleep_ms(1000);
   output = itest_read_from_stdout_mem(&wallet->shared_mem);
 
-  LOKI_ASSERT(str_find(output.c_str, "Wait for transaction to be included in a block"));
-  // TODO(doyle): The dest should be set to yourself, extract from the registration cmd?
-  loki_transaction result = {};
+  bool result = str_find(output.c_str, "Wait for transaction to be included in a block");
   return result;
 }
 

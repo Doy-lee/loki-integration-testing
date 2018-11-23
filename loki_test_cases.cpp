@@ -213,6 +213,49 @@ test_result register_service_node__4_stakers()
   return result;
 }
 
+test_result register_service_node__cant_register_twice()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.nettype             = loki_nettype::testnet;
+  daemon_t daemon                   = create_and_start_daemon(daemon_params);
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
+  wallet_set_default_testing_settings(&wallet);
+
+  // Mine enough funds for a registration
+  loki_addr my_addr = {};
+  {
+    wallet_address(&wallet, 0, &my_addr);
+    wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
+  }
+
+  // Register the service node
+  loki_scratch_buf registration_cmd = {};
+  {
+    daemon_prepare_registration_params registration_params = {};
+    registration_params.num_contributors                   = 1;
+    registration_params.contributors[0].addr               = my_addr;
+    registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
+
+    EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
+    wallet_register_service_node(&wallet, registration_cmd.c_str);
+    wallet_mine_atleast_n_blocks(&wallet, 1, 50 /*mining_duration_in_ms*/);
+
+    // Check service node registered
+    EXPECT(result, daemon_print_sn_status(&daemon), "Service node was not registered properly, print_sn_status returned data that wasn't parsable");
+  }
+
+  // Register twice, should be disallowed
+  EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str) == false,
+      "You should not be allowed to register twice, if detected on the network");
+}
+
 test_result register_service_node__grace_period()
 {
   test_result result = {};

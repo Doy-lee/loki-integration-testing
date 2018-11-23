@@ -15,6 +15,7 @@ void        print_test_results(test_result const *results);
 test_result prepare_registration__solo_auto_stake();
 test_result prepare_registration__100_percent_operator_cut_auto_stake();
 test_result register_service_node__4_stakers();
+test_result register_service_node__cant_register_twice();
 test_result register_service_node__grace_period();
 test_result stake__allow_insufficient_stake_w_reserved_contributor();
 test_result stake__disallow_insufficient_stake_w_not_reserved_contributor();

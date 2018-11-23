@@ -31,6 +31,7 @@ class Shm {
  public:
   // path should only contain alpha-numeric characters, and is normalized
   // on linux/macOS.
+                            Shm         () = default;
   explicit                  Shm         (std::string path, size_t size);
   static bool               RegionExists(std::string const &path);
 
@@ -43,7 +44,7 @@ class Shm {
   inline       uint8_t*     Data()       { return data_; }
   inline const uint8_t*     Data() const { return data_; }
 
-  ~Shm();
+  // ~Shm();
 
  private:
   ShoomError CreateOrOpen(int flag);
@@ -142,11 +143,13 @@ ShoomError Shm::CreateOrOpen(int flag) {
   return kOK;
 }
 
+#if 0
 Shm::~Shm() {
   // munmap(data_, size_);
   // close(fd_);
   // shm_unlink(path_.c_str());
 }
+#endif
 
 }  // namespace shoom
 
@@ -197,6 +200,7 @@ ShoomError Shm::CreateOrOpen(int flag) {
 /**
  * Destructor
  */
+#if 0
 Shm::~Shm() {
   if (data_) {
     UnmapViewOfFile(data_);
@@ -205,6 +209,7 @@ Shm::~Shm() {
 
   CloseHandle(handle_);
 }
+#endif
 
 }  // namespace shoom
 #endif // _WIN32

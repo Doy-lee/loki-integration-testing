@@ -37,8 +37,8 @@ void os_kill_process(FILE *process)
 char const LOKI_CMD_FMT[]        = "start bin/lokid.exe %s";
 char const LOKI_WALLET_CMD_FMT[] = "start bin/loki-wallet-cli.exe %s";
 #else
-char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; exit \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; exit \"";
+char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
 #endif
 
 struct state_t
@@ -48,41 +48,11 @@ struct state_t
     int free_p2p_port = 1111;
     int free_rpc_port = 2222;
     int free_zmq_port = 3333;
-
-    shoom::Shm wallet_stdout_shared_mem{"loki_integration_testing_wallet_stdout", 8192};
-    shoom::Shm wallet_stdin_shared_mem {"loki_integration_testing_wallet_stdin",  8192};
-    shoom::Shm daemon_stdout_shared_mem{"loki_integration_testing_daemon_stdout", 8192};
-    shoom::Shm daemon_stdin_shared_mem {"loki_integration_testing_daemon_stdin",  8192};
 };
 
 static state_t global_state;
-static uint32_t global_wallet_write_cmd_index = 0;
-static uint32_t global_daemon_write_cmd_index = 0;
-static uint32_t global_wallet_read_cmd_index = 0;
-static uint32_t global_daemon_read_cmd_index = 0;
 
 uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
-static void make_message(itest_shared_mem_type type, char *msg_buf, int msg_buf_len, char const *msg_data, int msg_data_len)
-{
-  uint32_t *cmd_index = (type == itest_shared_mem_type::wallet) ? &global_wallet_write_cmd_index : &global_daemon_write_cmd_index;
-  (*cmd_index)++;
-
-  int total_len = static_cast<int>(sizeof(*cmd_index) + sizeof(MSG_MAGIC_BYTES) + msg_data_len);
-  LOKI_ASSERT(total_len < msg_buf_len);
-
-  char *ptr = msg_buf;
-  memcpy(ptr, cmd_index, sizeof(*cmd_index));
-  ptr += sizeof(*cmd_index);
-
-  memcpy(ptr, (char *)&MSG_MAGIC_BYTES, sizeof(MSG_MAGIC_BYTES));
-  ptr += sizeof(MSG_MAGIC_BYTES);
-
-  memcpy(ptr, msg_data, msg_data_len);
-  ptr += sizeof(msg_data);
-
-  msg_buf[total_len] = 0;
-}
-
 static char const *parse_message(char const *msg_buf, int msg_buf_len, uint32_t *cmd_index)
 {
   char const *ptr = msg_buf;
@@ -117,26 +87,36 @@ void start_daemon_params::add_hardfork(int version, int height)
   this->nettype = loki_nettype::fakenet;
 }
 
-void itest_write_to_stdin_mem(itest_shared_mem_type type, char const *cmd, int cmd_len)
+void itest_write_to_stdin_mem(in_out_shared_mem *shared_mem, char const *cmd, int cmd_len)
 {
-  shoom::Shm *shared_mem = (type == itest_shared_mem_type::wallet) ? &global_state.wallet_stdin_shared_mem : &global_state.daemon_stdin_shared_mem;
-
   if (cmd_len == -1) cmd_len = static_cast<int>(strlen(cmd));
-  LOKI_ASSERT(cmd_len < shared_mem->Size());
-  make_message(type, (char *)shared_mem->Data(), shared_mem->Size(), cmd, cmd_len);
+
+  char *ptr     = reinterpret_cast<char *>(shared_mem->stdin_mem.Data());
+  int total_len = static_cast<int>(sizeof(shared_mem->stdin_cmd_index) + sizeof(MSG_MAGIC_BYTES) + cmd_len);
+  LOKI_ASSERT(total_len < shared_mem->stdin_mem.Size());
+
+  // Write message to shared memory
+  {
+    shared_mem->stdin_cmd_index++;
+    memcpy(ptr, &shared_mem->stdin_cmd_index, sizeof(shared_mem->stdin_cmd_index));
+    ptr += sizeof(shared_mem->stdin_cmd_index);
+
+    memcpy(ptr, (char *)&MSG_MAGIC_BYTES, sizeof(MSG_MAGIC_BYTES));
+    ptr += sizeof(MSG_MAGIC_BYTES);
+
+    memcpy(ptr, cmd, cmd_len);
+    ptr += cmd_len;
+
+    ptr[0] = 0;
+  }
 }
 
-loki_scratch_buf itest_read_from_stdout_mem(itest_shared_mem_type type)
+loki_scratch_buf itest_read_from_stdout_mem(in_out_shared_mem *shared_mem)
 {
   static loki_scratch_buf last_output   = {};
 
-  shoom::Shm *shared_mem = (type == itest_shared_mem_type::wallet) ? &global_state.wallet_stdout_shared_mem : &global_state.daemon_stdout_shared_mem;
-
-  uint32_t *last_cmd_index = nullptr;
-  if (type == itest_shared_mem_type::wallet) last_cmd_index = &global_wallet_read_cmd_index;
-  else                                       last_cmd_index = &global_daemon_read_cmd_index;
-
-  char const *output = nullptr;
+  uint32_t last_cmd_index = 0;
+  char const *output      = nullptr;
   for(;;)
   {
     // TODO(doyle): Make it so we never need to sleep, or reduce this number as
@@ -144,16 +124,16 @@ loki_scratch_buf itest_read_from_stdout_mem(itest_shared_mem_type type)
     // read too fast, we might skip certain outputs and get blocked waiting for
     // a result.
     os_sleep_ms(600);
-    shared_mem->Open();
+    shared_mem->stdout_mem.Open();
 
-    char *data         = reinterpret_cast<char *>(shared_mem->Data());
+    char *data         = reinterpret_cast<char *>(shared_mem->stdout_mem.Data());
     uint32_t cmd_index = 0;
-    output             = parse_message(data, shared_mem->Size(), &cmd_index);
+    output             = parse_message(data, shared_mem->stdout_mem.Size(), &cmd_index);
 
-    if (output && *last_cmd_index < cmd_index)
+    if (output && last_cmd_index < cmd_index)
     {
-      (*last_cmd_index) = cmd_index;
-      last_output       = output;
+      last_cmd_index = cmd_index;
+      last_output    = output;
       break;
     }
   }
@@ -165,10 +145,10 @@ loki_scratch_buf itest_read_from_stdout_mem(itest_shared_mem_type type)
   return result;
 }
 
-loki_scratch_buf itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type type, char const *cmd, int cmd_len)
+loki_scratch_buf itest_write_to_stdin_mem_and_get_result(in_out_shared_mem *shared_mem, char const *cmd, int cmd_len)
 {
-  itest_write_to_stdin_mem(type, cmd, cmd_len);
-  loki_scratch_buf result = itest_read_from_stdout_mem(type);
+  itest_write_to_stdin_mem(shared_mem, cmd, cmd_len);
+  loki_scratch_buf result = itest_read_from_stdout_mem(shared_mem);
   return result;
 }
 
@@ -194,9 +174,6 @@ bool os_file_delete(char const *path)
 
 void start_daemon(daemon_t *daemon, start_daemon_params params)
 {
-  global_daemon_read_cmd_index = 0;
-  global_daemon_write_cmd_index = 0;
-
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--p2p-bind-port %d ",            daemon->p2p_port);
   arg_buf.append("--rpc-bind-port %d ",            daemon->rpc_port);
@@ -209,6 +186,7 @@ void start_daemon(daemon_t *daemon, start_daemon_params params)
 
   if (params.fixed_difficulty > 0)
     arg_buf.append("--fixed-difficulty %d ", params.fixed_difficulty);
+
 
   if (params.num_hardforks > 0)
   {
@@ -231,8 +209,11 @@ void start_daemon(daemon_t *daemon, start_daemon_params params)
       arg_buf.append("--stagnet ");
   }
 
+  arg_buf.append("--integration-test-shared-mem-stdin %s ", daemon->shared_mem.stdin_mem.Path().c_str());
+  arg_buf.append("--integration-test-shared-mem-stdout %s ", daemon->shared_mem.stdout_mem.Path().c_str());
+  itest_reset_shared_memory(&daemon->shared_mem);
+
   loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
-  itest_reset_shared_memory(itest_reset_type::daemon);
   daemon->proc_handle = os_launch_process(cmd_buf.data);
   os_sleep_ms(1000); // TODO(doyle): HACK to let enough time for the daemon to init
 }
@@ -261,6 +242,11 @@ daemon_t create_daemon()
   result.p2p_port     = global_state.free_p2p_port++;
   result.rpc_port     = global_state.free_rpc_port++;
   result.zmq_rpc_port = global_state.free_zmq_port++;
+
+  loki_buffer<128> stdin_name ("loki_integration_testing_daemon_stdin%d", result.id);
+  loki_buffer<128> stdout_name("loki_integration_testing_daemon_stdout%d", result.id);
+  result.shared_mem.stdin_mem  = shoom::Shm(stdin_name.c_str, 8192);
+  result.shared_mem.stdout_mem = shoom::Shm(stdout_name.c_str, 8192);
   return result;
 }
 
@@ -283,7 +269,15 @@ wallet_t create_wallet(loki_nettype nettype)
   arg_buf.append("--mnemonic-language English ");
   arg_buf.append("save ");
 
-  itest_reset_shared_memory(itest_reset_type::wallet);
+  loki_buffer<128> stdin_name ("loki_integration_testing_wallet_stdin%d", result.id);
+  loki_buffer<128> stdout_name("loki_integration_testing_wallet_stdout%d", result.id);
+  result.shared_mem.stdin_mem  = shoom::Shm(stdin_name.c_str, 8192);
+  result.shared_mem.stdout_mem = shoom::Shm(stdout_name.c_str, 8192);
+
+  arg_buf.append("--integration-test-shared-mem-stdin %s ", stdin_name.c_str);
+  arg_buf.append("--integration-test-shared-mem-stdout %s ", stdout_name.c_str);
+  itest_reset_shared_memory(&result.shared_mem);
+
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
   os_launch_process(cmd_buf.data);
   os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init
@@ -292,9 +286,6 @@ wallet_t create_wallet(loki_nettype nettype)
 
 void start_wallet(wallet_t *wallet, start_wallet_params params)
 {
-  global_wallet_read_cmd_index = 0;
-  global_wallet_write_cmd_index = 0;
-
   loki_scratch_buf arg_buf = {};
   arg_buf.append("--wallet-file ./output/wallet_%d ", wallet->id);
   arg_buf.append("--password '' ");
@@ -313,28 +304,22 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
   else if (wallet->nettype == loki_nettype::stagenet)
     arg_buf.append("--stagenet ");
 
+  arg_buf.append("--integration-test-shared-mem-stdin %s ", wallet->shared_mem.stdin_mem.Path().c_str());
+  arg_buf.append("--integration-test-shared-mem-stdout %s ", wallet->shared_mem.stdout_mem.Path().c_str());
+  itest_reset_shared_memory(&wallet->shared_mem);
 
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
   wallet->proc_handle = os_launch_process(cmd_buf.data);
-  itest_reset_shared_memory(itest_reset_type::wallet);
   os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init, save and close.
 }
 
-void itest_reset_shared_memory(itest_reset_type type)
+void itest_reset_shared_memory(in_out_shared_mem *shared_mem)
 {
-  if (type == itest_reset_type::all || type == itest_reset_type::daemon)
-  {
-    global_state.daemon_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
-    global_state.daemon_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
-    global_state.daemon_stdout_shared_mem.Open();
-  }
-
-  if (type == itest_reset_type::all || type == itest_reset_type::wallet)
-  {
-    global_state.wallet_stdin_shared_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
-    global_state.wallet_stdout_shared_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
-    global_state.wallet_stdout_shared_mem.Open();
-  }
+  shared_mem->stdin_cmd_index  = 0;
+  shared_mem->stdout_cmd_index = 0;
+  shared_mem->stdin_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
+  shared_mem->stdout_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
+  shared_mem->stdout_mem.Open  ();
 }
 
 #include <iostream>
@@ -368,7 +353,11 @@ int main(int, char **)
   //  - show_transfers distinguishes payments
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
-  //  - transferring big amounts of loki
+  //  - staking with payment id disallowed
+  //  - staking to a full service node disallowed
+  //  - staking to a full service node allowed it contributor
+  //  - staking to non existent service node
+  //  - incremental staking until completely fulfilled
 
   RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
   RUN_TEST(prepare_registration__solo_auto_stake);

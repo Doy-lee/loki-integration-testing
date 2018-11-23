@@ -16,14 +16,14 @@
 #define LOKI_ASSERT(expr) \
   if (!(expr)) \
   { \
-    fprintf(stderr, "%s:%d [" #expr "] \n", __FILE__, __LINE__); \
+    fprintf(stderr, "%s:%d assert(" #expr "): \n", __FILE__, __LINE__); \
     assert(expr); \
   }
 
 #define LOKI_ASSERT_MSG(expr, fmt, ...) \
   if (!(expr)) \
   { \
-    fprintf(stderr, "%s:%d [" #expr "] " fmt "\n", __FILE__, __LINE__, ## __VA_ARGS__); \
+    fprintf(stderr, "%s:%d assert(" #expr "): " fmt "\n", __FILE__, __LINE__, ## __VA_ARGS__); \
     assert(expr); \
   }
 
@@ -85,12 +85,19 @@ bool             os_file_delete                   (char const *path);
 // Integration Test Primitives
 //
 
-enum struct itest_shared_mem_type  { wallet, daemon };
-enum struct itest_reset_type { all, daemon, wallet };
-void             itest_write_to_stdin_mem               (itest_shared_mem_type type, char const *cmd, int cmd_len = -1);
-loki_scratch_buf itest_read_from_stdout_mem             (itest_shared_mem_type type);
-loki_scratch_buf itest_write_to_stdin_mem_and_get_result(itest_shared_mem_type type, char const *cmd, int cmd_len = -1);
-void             itest_reset_shared_memory              (itest_reset_type type = itest_reset_type::all);
+struct in_out_shared_mem
+{
+  uint32_t   stdin_cmd_index;
+  shoom::Shm stdin_mem;
+
+  uint32_t  stdout_cmd_index;
+  shoom::Shm stdout_mem;
+};
+
+void             itest_write_to_stdin_mem               (in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
+loki_scratch_buf itest_read_from_stdout_mem             (in_out_shared_mem *shared_mem);
+loki_scratch_buf itest_write_to_stdin_mem_and_get_result(in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
+void             itest_reset_shared_memory              (in_out_shared_mem *shared_mem);
 
 //
 // Loki Blockchain Primitives
@@ -140,12 +147,13 @@ enum struct loki_nettype
 //
 struct daemon_t
 {
-  FILE *proc_handle;
-  int   id;
-  bool  is_mining;
-  int   p2p_port;
-  int   rpc_port;
-  int   zmq_rpc_port;
+  FILE       *proc_handle;
+  int         id;
+  bool        is_mining;
+  int         p2p_port;
+  int         rpc_port;
+  int         zmq_rpc_port;
+  in_out_shared_mem shared_mem;
 };
 
 struct wallet_t
@@ -155,6 +163,7 @@ struct wallet_t
   loki_nettype  nettype;
   uint64_t      balance;
   uint64_t      unlocked_balance;
+  in_out_shared_mem shared_mem;
 };
 
 struct start_daemon_params

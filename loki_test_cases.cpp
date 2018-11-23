@@ -164,25 +164,28 @@ test_result register_service_node__4_stakers()
   // Mine and unlock funds
   for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
   {
-    stakers[i]       = create_wallet(loki_nettype::testnet);
+    stakers[i]       = create_and_start_wallet(loki_nettype::testnet, wallet_params);
     wallet_t *staker = stakers + i;
-    start_wallet(staker, wallet_params);
+
     wallet_set_default_testing_settings(staker);
-
-    LOKI_DEFER { wallet_exit(staker); };
-
     wallet_address(staker, 0, stakers_addr + i);
     wallet_mine_atleast_n_blocks(staker, 2);
   }
 
+  LOKI_DEFER
+  {
+    daemon_exit(&daemon);
+    for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+      wallet_exit(stakers + i);
+  };
+
   wallet_t *owner = stakers + 0;
-  start_wallet(owner, wallet_params);
   wallet_mine_unlock_time_blocks(owner);
 
-  // Register the service node
   loki_snode_key snode_key = {};
   daemon_print_sn_key(&daemon, &snode_key);
 
+  // Register the service node and put it on the chain
   daemon_prepare_registration_params registration_params = {};
   registration_params.num_contributors = (int)LOKI_ARRAY_COUNT(stakers);
   for (int i = 0; i < registration_params.num_contributors; ++i)
@@ -196,30 +199,17 @@ test_result register_service_node__4_stakers()
   wallet_register_service_node(owner, registration_cmd.c_str);
   wallet_mine_atleast_n_blocks(owner, 1, 100 /*mining_duration*/);
 
+
   // Each person stakes their part to the wallet
-  wallet_exit(owner);
-  daemon_exit(&daemon);
-
-  // TODO(doyle): HACK. For some reason the 3rd wallet gets stuck and doesn't
-  // connect to the daemon. Maybe a max connection limit?
-  os_sleep_ms(1000);
-  start_daemon(&daemon);
-  LOKI_DEFER { daemon_exit(&daemon); };
-
   for (int i = 1; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
   {
     wallet_t *staker = stakers + i;
-    start_wallet(staker, wallet_params);
-    LOKI_DEFER { wallet_exit(staker); };
-
     loki_contributor const *contributor = registration_params.contributors + i;
     LOKI_ASSERT(wallet_stake(staker, &snode_key, &contributor->addr, contributor->amount));
   }
 
-  start_wallet(owner, wallet_params);
   wallet_mine_atleast_n_blocks(owner, 1);
   EXPECT(result, daemon_print_sn_status(&daemon), "Service node could not be registered");
-  wallet_exit(owner);
   return result;
 }
 
@@ -247,7 +237,6 @@ test_result register_service_node__grace_period()
     wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
     wallet_address(&wallet, 0, &my_addr);
     wallet_sweep_all(&wallet, my_addr.c_str);
-    os_sleep_ms(2000); // TODO(doyle): Hack. Sweep all is inevitably going to construct multiple tx's and will take time to write out to stdout
     wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, 100/*mining_duration_in_ms*/);
   }
 
@@ -299,20 +288,20 @@ test_result stake__disallow_insufficient_stake_w_not_reserved_contributor()
   INITIALISE_TEST_CONTEXT(result);
   start_daemon_params daemon_params = {};
   daemon_t daemon                   = create_and_start_daemon(daemon_params);
-  LOKI_DEFER { daemon_exit(&daemon); };
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
 
   // Setup wallet 1 service node
-  loki_addr main_addr = {};
-  {
-    wallet_t wallet = create_and_start_wallet(daemon_params.nettype, wallet_params);
-    LOKI_DEFER { wallet_exit(&wallet); };
-    wallet_set_default_testing_settings(&wallet);
+  loki_addr main_addr  = {};
+  wallet_t owner       = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t contributor = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&owner); wallet_exit(&contributor); };
 
-    wallet_address(&wallet, 0, &main_addr);
-    wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+  {
+    wallet_set_default_testing_settings(&owner);
+    wallet_address(&owner, 0, &main_addr);
+    wallet_mine_atleast_n_blocks(&owner, 100, LOKI_SECONDS_TO_MS(4));
     loki_scratch_buf registration_cmd = {};
     {
       daemon_prepare_registration_params params = {};
@@ -323,8 +312,8 @@ test_result stake__disallow_insufficient_stake_w_not_reserved_contributor()
       daemon_prepare_registration(&daemon, &params, &registration_cmd);
     }
 
-    wallet_register_service_node(&wallet, registration_cmd.c_str);
-    wallet_mine_atleast_n_blocks(&wallet, 1, 100 /*mining_duration_in_ms*/);
+    wallet_register_service_node(&owner, registration_cmd.c_str);
+    wallet_mine_atleast_n_blocks(&owner, 1, 100 /*mining_duration_in_ms*/);
     EXPECT(result, daemon_print_sn_status(&daemon), "Service node failed to register");
   }
 
@@ -333,8 +322,6 @@ test_result stake__disallow_insufficient_stake_w_not_reserved_contributor()
 
   // Wallet 2 try to stake with insufficient balance
   {
-    wallet_t contributor = create_and_start_wallet(daemon_params.nettype, wallet_params);
-    LOKI_DEFER { wallet_exit(&contributor); };
     wallet_set_default_testing_settings(&contributor);
 
     loki_addr contributor_addr = {};
@@ -354,39 +341,29 @@ test_result stake__allow_insufficient_stake_w_reserved_contributor()
   INITIALISE_TEST_CONTEXT(result);
   start_daemon_params daemon_params = {};
   daemon_t daemon                   = create_and_start_daemon(daemon_params);
-  LOKI_DEFER { daemon_exit(&daemon); };
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
 
-  // Setup wallet 1 service node
-  loki_addr wallet1_addr = {};
-  wallet_t wallet1       = create_wallet(daemon_params.nettype);
-  {
-    start_wallet(&wallet1, wallet_params);
-    wallet_set_default_testing_settings(&wallet1);
-    LOKI_DEFER { wallet_exit(&wallet1); };
+  wallet_t wallet1 = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t wallet2 = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet1); wallet_exit(&wallet2); };
 
+  // Collect funds for each wallet
+  loki_addr wallet1_addr = {};
+  loki_addr wallet2_addr = {};
+  {
+    wallet_set_default_testing_settings(&wallet1);
     wallet_address(&wallet1, 0, &wallet1_addr);
     wallet_mine_atleast_n_blocks(&wallet1, 50, LOKI_SECONDS_TO_MS(1));
-  }
-
-  loki_addr wallet2_addr = {};
-  wallet_t wallet2       = create_wallet(daemon_params.nettype);
-  {
-    start_wallet(&wallet2, wallet_params);
-    wallet_set_default_testing_settings(&wallet2);
-    LOKI_DEFER { wallet_exit(&wallet2); };
 
     wallet_set_default_testing_settings(&wallet2);
     wallet_address(&wallet2, 0, &wallet2_addr);
     wallet_mine_atleast_n_blocks(&wallet2, 50, LOKI_SECONDS_TO_MS(1));
   }
 
+  // Put the registration onto the blockchain
   {
-    start_wallet(&wallet1, wallet_params);
-    LOKI_DEFER { wallet_exit(&wallet1); };
-
     loki_scratch_buf registration_cmd                     = {};
     daemon_prepare_registration_params params             = {};
     params.open_pool                                      = true;
@@ -405,14 +382,8 @@ test_result stake__allow_insufficient_stake_w_reserved_contributor()
   EXPECT(result, daemon_print_sn_key(&daemon, &snode_key), "Failed to print service node key");
 
   // Wallet 2 try to stake with insufficient balance, should be allowed if they have reserved a spot
-  {
-    start_wallet(&wallet2, wallet_params);
-    wallet_set_default_testing_settings(&wallet2);
-    LOKI_DEFER { wallet_exit(&wallet2); };
-
-    EXPECT(result, wallet_stake(&wallet2, &snode_key, &wallet2_addr, 10),
-        "A service node registration with a reserved contributor should allow staking in insufficient parts.");
-  }
+  EXPECT(result, wallet_stake(&wallet2, &snode_key, &wallet2_addr, 10),
+      "A service node registration with a reserved contributor should allow staking in insufficient parts.");
 
   // TODO(doyle): You should mine, then parse the results of print_sn_status to make sure the 10 loki was accepted
   // Right now this only checks that the wallet allows you to, it will warn you, that you need to contribute more
@@ -488,30 +459,25 @@ test_result transfer__expect_fee_amount()
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t src_wallet               = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t dest_wallet              = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&src_wallet); wallet_exit(&dest_wallet); };
 
-  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
-  wallet_set_default_testing_settings(&wallet);
-  wallet_mine_atleast_n_blocks(&wallet, 100, 4000);
+  wallet_set_default_testing_settings(&src_wallet);
+  wallet_set_default_testing_settings(&dest_wallet);
+  wallet_mine_atleast_n_blocks(&src_wallet, 100, 4000);
 
-  loki_addr wallet_addr = {};
-  LOKI_ASSERT(wallet_address(&wallet, 0, &wallet_addr));
-  wallet_exit(&wallet);
-
-  wallet_t dest = create_and_start_wallet(daemon_params.nettype, wallet_params);
-  wallet_set_default_testing_settings(&dest);
-  loki_addr dest_addr = {};
-  LOKI_ASSERT(wallet_address(&dest, 0, &dest_addr));
-  wallet_exit(&dest);
+  loki_addr src_addr = {}, dest_addr = {};
+  LOKI_ASSERT(wallet_address(&src_wallet,  0, &src_addr));
+  LOKI_ASSERT(wallet_address(&dest_wallet, 0, &dest_addr));
 
   int64_t const fee_estimate = 71639960;
   int64_t const epsilon      = 10000000;
+
   // Transfer from wallet to dest
   {
-    start_wallet(&wallet, wallet_params);
-    loki_transaction tx = wallet_transfer(&wallet, dest_addr.c_str, 50);
-    wallet_mine_atleast_n_blocks(&wallet, 30);
-    wallet_exit(&wallet);
+    loki_transaction tx = wallet_transfer(&src_wallet, dest_addr.c_str, 50);
+    wallet_mine_atleast_n_blocks(&src_wallet, 30);
 
     int64_t fee                = static_cast<int64_t>(tx.fee);
     int64_t delta              = LOKI_ABS(fee_estimate - fee);
@@ -520,10 +486,8 @@ test_result transfer__expect_fee_amount()
 
   // Transfer from dest to wallet
   {
-    start_wallet(&dest, wallet_params);
-    wallet_refresh(&dest);
-    loki_transaction tx = wallet_transfer(&dest, wallet_addr.c_str, 45);
-    wallet_exit(&dest);
+    wallet_refresh(&dest_wallet);
+    loki_transaction tx = wallet_transfer(&dest_wallet, src_addr.c_str, 45);
 
     int64_t fee   = static_cast<int64_t>(tx.fee);
     int64_t delta = LOKI_ABS(fee_estimate - fee);
@@ -547,30 +511,25 @@ test_result transfer__expect_fee_amount_bulletproofs()
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t src_wallet               = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t dest_wallet              = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&src_wallet); wallet_exit(&dest_wallet); };
 
-  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
-  wallet_set_default_testing_settings(&wallet);
-  wallet_mine_atleast_n_blocks(&wallet, 100, 4000);
+  wallet_set_default_testing_settings(&src_wallet);
+  wallet_set_default_testing_settings(&dest_wallet);
+  wallet_mine_atleast_n_blocks(&src_wallet, 100, 4000);
 
-  loki_addr wallet_addr = {};
-  LOKI_ASSERT(wallet_address(&wallet, 0, &wallet_addr));
-  wallet_exit(&wallet);
-
-  wallet_t dest = create_and_start_wallet(daemon_params.nettype, wallet_params);
-  wallet_set_default_testing_settings(&dest);
-  loki_addr dest_addr = {};
-  LOKI_ASSERT(wallet_address(&dest, 0, &dest_addr));
-  wallet_exit(&dest);
+  loki_addr src_addr = {}, dest_addr = {};
+  LOKI_ASSERT(wallet_address(&src_wallet, 0,  &src_addr));
+  LOKI_ASSERT(wallet_address(&dest_wallet, 0, &dest_addr));
 
   int64_t const fee_estimate = 2170050;
   int64_t const epsilon      = 1000000;
+
   // Transfer from wallet to dest
   {
-    start_wallet(&wallet, wallet_params);
-    loki_transaction tx = wallet_transfer(&wallet, dest_addr.c_str, 50);
-    wallet_mine_atleast_n_blocks(&wallet, 30);
-    wallet_exit(&wallet);
+    loki_transaction tx = wallet_transfer(&src_wallet, dest_addr.c_str, 50);
+    wallet_mine_atleast_n_blocks(&src_wallet, 30);
 
     int64_t fee                = static_cast<int64_t>(tx.fee);
     int64_t delta              = LOKI_ABS(fee_estimate - fee);
@@ -579,10 +538,8 @@ test_result transfer__expect_fee_amount_bulletproofs()
 
   // Transfer from dest to wallet
   {
-    start_wallet(&dest, wallet_params);
-    wallet_refresh(&dest);
-    loki_transaction tx = wallet_transfer(&dest, wallet_addr.c_str, 45);
-    wallet_exit(&dest);
+    wallet_refresh(&dest_wallet);
+    loki_transaction tx = wallet_transfer(&dest_wallet, src_addr.c_str, 45);
 
     int64_t fee   = static_cast<int64_t>(tx.fee);
     int64_t delta = LOKI_ABS(fee_estimate - fee);

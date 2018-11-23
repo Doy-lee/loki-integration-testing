@@ -188,6 +188,11 @@ daemon_t create_daemon          ();
 void     start_wallet           (wallet_t *wallet, start_wallet_params params = {});
 void     start_daemon           (daemon_t *daemon, start_daemon_params params = {});
 daemon_t create_and_start_daemon(start_daemon_params params = {});
+
+// TODO(doyle): The create and start wallet function launches the wallet
+// separately to create on the commandline and immediately exits. Then launches
+// again for the start part. This is wasteful, we can speed up tests by making
+// it just reuse the same instance it did for creating.
 wallet_t create_and_start_wallet(loki_nettype nettype = loki_nettype::testnet, start_wallet_params params = {});
 
 #endif // LOKI_INTEGRATION_TEST_H

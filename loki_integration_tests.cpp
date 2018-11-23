@@ -358,9 +358,11 @@ int main(int, char **)
   //  - staking to non existent service node
   //  - incremental staking until completely fulfilled
 
+#if 1
   RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
   RUN_TEST(prepare_registration__solo_auto_stake);
   RUN_TEST(register_service_node__4_stakers);
+  RUN_TEST(register_service_node__gets_payed_expires_and_returns_funds);
   RUN_TEST(register_service_node__grace_period);
   RUN_TEST(register_service_node__cant_register_twice);
   RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
@@ -368,6 +370,7 @@ int main(int, char **)
   RUN_TEST(stake__from_subaddress);
   RUN_TEST(transfer__expect_fee_amount);
   RUN_TEST(transfer__expect_fee_amount_bulletproofs);
+#endif
 
   int num_tests_passed = 0;
   for (int i = 0; i < results_index; ++i)

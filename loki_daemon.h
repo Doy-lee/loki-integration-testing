@@ -80,8 +80,10 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   loki_contributor const *owner = params->contributors + 0;
 
   loki_buffer<32> owner_portions("%zu", amount_to_staking_portions(owner->amount));
-  loki_buffer<8>  owner_fee     ("%d",  params->owner_fee_percent);
-  loki_buffer<8>  owner_amount  ("%zu", owner->amount);
+  loki_buffer<32> owner_fee     ("%d",  params->owner_fee_percent);
+  loki_buffer<32> owner_amount  ("%zu", owner->amount);
+
+  // TODO(doyle): Handle fee properly
 
   // Expected Format: register_service_node [auto] <owner cut> <address> <fraction> [<address> <fraction> [...]]]
   loki_scratch_buf output                     = {};
@@ -192,7 +194,15 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     }
 
     char const *owner_fee_output  = str_skip_to_next_word(&ptr);
-    result &= str_match(owner_fee_output,  owner_fee.c_str);
+    // TODO(doyle): Hack handle owner fees better
+    if (params->owner_fee_percent == 100)
+    {
+      result &= str_match(owner_fee_output,      "18446744073709551612");
+    }
+    else
+    {
+      result &= str_match(owner_fee_output,  owner_fee.c_str);
+    }
 
     for (int i = 0; i < params->num_contributors; ++i)
     {

@@ -14,12 +14,13 @@ struct wallet_params
   uint64_t refresh_from_block_height = 0;
 };
 
+// TODO(doyle): This function should probably run by default since you almost always want it
 void             wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params = {});
 
 bool             wallet_address                     (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
 loki_addr        wallet_address_new                 (wallet_t *wallet);
 void             wallet_exit                        (wallet_t *wallet);
-uint64_t         wallet_get_balance                 (wallet_t *wallet, uint64_t *unlocked_balance);
+uint64_t         wallet_balance                 (wallet_t *wallet, uint64_t *unlocked_balance);
 void             wallet_refresh                     (wallet_t *wallet, int refresh_wait_time_in_ms = 2000);
 bool             wallet_set_daemon                  (wallet_t *wallet, struct daemon_t const *daemon);
 bool             wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
@@ -110,7 +111,7 @@ void wallet_exit(wallet_t *wallet)
   os_sleep_ms(500);
 }
 
-uint64_t wallet_get_balance(wallet_t *wallet, uint64_t *unlocked_balance)
+uint64_t wallet_balance(wallet_t *wallet, uint64_t *unlocked_balance)
 {
   loki_scratch_buf src = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "balance");
 
@@ -118,17 +119,20 @@ uint64_t wallet_get_balance(wallet_t *wallet, uint64_t *unlocked_balance)
   // Balance: 0.000000000, unlocked balance: 0.000000000
   char const *ptr           = str_skip_whitespace(src.c_str);
   char const *balance_label = ptr;
-  assert(str_match(ptr, "Balance: "));
+  LOKI_ASSERT(str_match(ptr, "Balance: "));
 
   char const *balance_str = str_skip_to_next_word(&ptr);
   uint64_t balance        = str_parse_loki_amount(balance_str);
 
-  char const *unlocked_balance_label = str_skip_to_next_word(&ptr);
-  assert(str_match(ptr, "unlocked balance: "));
+  if (unlocked_balance)
+  {
+    char const *unlocked_balance_label = str_skip_to_next_word(&ptr);
+    LOKI_ASSERT(str_match(ptr, "unlocked balance: "));
 
-  os_sleep_ms(500);
-  char const *unlocked_balance_str = str_skip_to_next_digit_inplace(&ptr);
-  *unlocked_balance                = str_parse_loki_amount(unlocked_balance_str);
+    os_sleep_ms(500);
+    char const *unlocked_balance_str = str_skip_to_next_digit_inplace(&ptr);
+    *unlocked_balance                = str_parse_loki_amount(unlocked_balance_str);
+  }
 
   return balance;
 }
@@ -318,7 +322,7 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
   {
     wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
     wallet_refresh                (wallet, LOKI_MAX(mining_duration_in_ms * 0.1f, 1000) /*refresh_wait_time_in_ms*/);
-    wallet_get_balance            (wallet, &unlocked_balance);
+    wallet_balance                (wallet, &unlocked_balance);
   }
 
   return unlocked_balance;

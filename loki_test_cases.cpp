@@ -254,6 +254,89 @@ test_result register_service_node__cant_register_twice()
   // Register twice, should be disallowed
   EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str) == false,
       "You should not be allowed to register twice, if detected on the network");
+
+  return result;
+}
+
+test_result register_service_node__gets_payed_expires_and_returns_funds()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_t daemon                   = create_and_start_daemon(daemon_params);
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+  wallet_t master_wallet            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t staker1                  = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_t staker2                  = create_and_start_wallet(daemon_params.nettype, wallet_params);
+
+  LOKI_DEFER
+  {
+    daemon_exit(&daemon);
+    wallet_exit(&master_wallet);
+    wallet_exit(&staker1);
+    wallet_exit(&staker2);
+  };
+
+  // Get wallet addresses
+  loki_addr staker1_addr, staker2_addr;
+  LOKI_ASSERT(wallet_address(&staker1, 0, &staker1_addr));
+  LOKI_ASSERT(wallet_address(&staker2, 0, &staker2_addr));
+
+  wallet_set_default_testing_settings(&master_wallet);
+  wallet_set_default_testing_settings(&staker1);
+  wallet_set_default_testing_settings(&staker2);
+
+  // Fund the stakers wallet
+  wallet_mine_until_unlocked_balance(&master_wallet, 150 * LOKI_ATOMIC_UNITS);
+  wallet_transfer(&master_wallet, staker1_addr.c_str, 50 + 1);
+  wallet_transfer(&master_wallet, staker2_addr.c_str, 50 + 1);
+  wallet_mine_atleast_n_blocks(&master_wallet, 20, 500/*mining_duration_in_ms*/); // Get TX's onto the chain and let unlock it for the stakers
+
+  wallet_refresh(&staker1);
+  wallet_refresh(&staker2);
+  // Staker 1 registers the service node
+  {
+    // NOTE: The owner takes 100% of the fee, so we can check payouts for staker
+    // 1 and check that around ~50 loki returns to the 2nd staker, i.e so
+    // payouts don't mess with the 2nd staker too much and we can verify the
+    // locked funds returned by checking they have 50 or so loki (barring test
+    // fee)
+    daemon_prepare_registration_params params             = {};
+    params.owner_fee_percent                              = 100;
+    params.contributors[params.num_contributors].addr     = staker1_addr;
+    params.contributors[params.num_contributors++].amount = 50; // TODO(doyle): Assuming fakechain requirement of 100
+    params.contributors[params.num_contributors].addr     = staker2_addr;
+    params.contributors[params.num_contributors++].amount = 50;
+
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&staker1, registration_cmd.c_str),    "Failed to register service node");
+  }
+
+  // Staker 2 fulfils the service node contribution
+  {
+    loki_snode_key snode_key = {};
+    daemon_print_sn_key(&daemon, &snode_key);
+    wallet_mine_atleast_n_blocks(&master_wallet, 5, 100/*mining_duration_in_ms*/); // Get registration onto the chain
+    EXPECT(result, wallet_stake(&staker2, &snode_key, &staker2_addr, 50), "Staker 2 failed to stake to service node");
+  }
+
+  // TODO(doyle): assuming fakechain staking duration is 30 blocks + lock blocks excess.
+  wallet_mine_atleast_n_blocks(&master_wallet, 5 + 30 + LOKI_STAKING_EXCESS_BLOCKS); // Get node onto chain and mine until expiry
+
+  // Check balances
+  {
+    wallet_refresh(&staker1);
+    wallet_refresh(&staker2);
+    uint64_t staker1_balance = wallet_balance(&staker1, nullptr);
+    uint64_t staker2_balance = wallet_balance(&staker2, nullptr);
+    EXPECT(result, staker1_balance > 500 * LOKI_ATOMIC_UNITS,                                               "Service node operator took 100\% of the fees, they should have a lot of rewards. Certainly more than 500, we have: %zu", staker1_balance);
+    EXPECT(result, staker2_balance >= 45  * LOKI_ATOMIC_UNITS && staker2_balance <= 55 * LOKI_ATOMIC_UNITS, "The contributor should of received no payouts and received their stake back, so around ~50LOKI not including fees: %zu", staker2_balance);
+  }
+  return result;
 }
 
 test_result register_service_node__grace_period()
@@ -288,7 +371,7 @@ test_result register_service_node__grace_period()
   {
     registration_params.num_contributors                   = 1;
     registration_params.contributors[0].addr               = my_addr;
-    registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
+    registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming fakechain
 
     loki_scratch_buf registration_cmd = {};
     EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
@@ -299,6 +382,7 @@ test_result register_service_node__grace_period()
     EXPECT(result, daemon_print_sn_status(&daemon), "Service node was not registered properly, print_sn_status returned data that wasn't parsable");
   }
 
+  // TODO(doyle): Assumes fakechain
   // Mine until within the grace re-registration range
   {
     int const STAKING_DURATION = 30; // TODO(doyle): Workaround for inability to print_sn_status
@@ -466,7 +550,7 @@ test_result stake__from_subaddress()
   for (uint64_t subaddr_unlocked_bal = 0; subaddr_unlocked_bal < 30;)
   {
     wallet_mine_atleast_n_blocks(&operator_wallet, 1);
-    wallet_get_balance(&operator_wallet, &subaddr_unlocked_bal);
+    wallet_balance(&operator_wallet, &subaddr_unlocked_bal);
   }
 
   loki_scratch_buf registration_cmd = {};

@@ -97,7 +97,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner_fee.c_str);
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner_amount.c_str);
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "n");                  // Reserve for other contributors?
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.c_str);
+      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.buf.c_str);
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");                  // You will leave this open for other people. Is this okay?
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, auto_stake_str);     // Auto restake?
       output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");         // Confirm?
@@ -117,7 +117,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       char const *owner_portions_output = str_skip_to_next_word(&ptr);
 
       result &= str_match(owner_fee_output,      owner_fee.c_str);
-      result &= str_match(owner_addr_output,     owner->addr.c_str);
+      result &= str_match(owner_addr_output,     owner->addr.buf.c_str);
 
       // TODO(doyle): Validate amounts, because we don't use the same portions
       // calculation as loki daemon we can be off by small amounts.
@@ -129,7 +129,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     {
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "prepare_registration");
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");                   // Contribute entire stake?
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.c_str); // Operator address
+      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.buf.c_str); // Operator address
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, auto_stake_str);      // Auto restake?
       output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y"); // Confirm
 
@@ -149,7 +149,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
 
       result &= str_match(register_str,          "register_service_node");
       result &= str_match(owner_fee_output,      "18446744073709551612");
-      result &= str_match(owner_addr_output,     owner->addr.c_str);
+      result &= str_match(owner_addr_output,     owner->addr.buf.c_str);
       result &= str_match(owner_portions_output, "18446744073709551612");
 
       register_service_node_start_ptr = register_str;
@@ -166,14 +166,14 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     char const *num_extra_contribs_str = (num_extra_contribs == 1) ? "1" : (num_extra_contribs == 2) ? "2" : "3";
     itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");                    // Do you want to reserve portions of the stake for other contribs?
     itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, num_extra_contribs_str); // Number of additional contributors
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.c_str); // Operator address
+    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.buf.c_str); // Operator address
 
     for (int i = 1; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
       itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, contributor_amount.c_str); // How much loki to reserve for contributor
-      output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, contributor->addr.c_str);  // Contrib address
+      output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, contributor->addr.buf.c_str);  // Contrib address
     }
 
     if (params->open_pool)
@@ -208,7 +208,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     {
       loki_contributor const *contributor = params->contributors + i;
       char const *addr_output             = str_skip_to_next_word(&ptr);
-      result                             &= str_match(addr_output,contributor->addr.c_str);
+      result                             &= str_match(addr_output,contributor->addr.buf.c_str);
       char const *portions_output         = str_skip_to_next_word(&ptr);
       loki_buffer<32> contributor_portions("%zu", amount_to_staking_portions(contributor->amount));
       (void)portions_output; (void)contributor_portions;

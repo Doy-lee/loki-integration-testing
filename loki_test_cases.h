@@ -12,21 +12,22 @@ struct test_result
 
 void        print_test_results(test_result const *results);
 
-test_result prepare_registration__solo_auto_stake();
-test_result prepare_registration__100_percent_operator_cut_auto_stake();
+test_result prepare_registration__check_solo_auto_stake();
+test_result prepare_registration__check_100_percent_operator_cut_auto_stake();
 
-test_result register_service_node__4_stakers();
-test_result register_service_node__cant_register_twice();
-test_result register_service_node__gets_payed_expires_and_returns_funds();
-test_result register_service_node__grace_period();
+test_result register_service_node__allow_4_stakers();
+test_result register_service_node__check_gets_payed_expires_and_returns_funds();
+test_result register_service_node__check_grace_period();
+test_result register_service_node__disallow_register_twice();
 
+test_result stake__allow_incremental_staking_until_node_active();
 test_result stake__allow_insufficient_stake_w_reserved_contributor();
 test_result stake__disallow_insufficient_stake_w_not_reserved_contributor();
-test_result stake__from_subaddress();
-test_result stake__incremental_staking_until_node_active();
-test_result stake__to_non_registered_node_disallowed();
+test_result stake__disallow_from_subaddress();
+test_result stake__disallow_payment_id();
+test_result stake__disallow_to_non_registered_node();
 
-test_result transfer__expect_fee_amount();
-test_result transfer__expect_fee_amount_bulletproofs();
+test_result transfer__check_fee_amount();
+test_result transfer__check_fee_amount_bulletproofs();
 
 #endif // LOKI_TEST_CASES_H

@@ -64,7 +64,8 @@ struct loki_buffer
   loki_buffer(char const *fmt, ...)     { va_list va; va_start(va, fmt); len =  stbsp_vsnprintf(data, MAX, fmt, va);                  va_end(va); LOKI_ASSERT(len   < MAX); }
   void append(char const *fmt, ...)     { va_list va; va_start(va, fmt); int extra = stbsp_vsnprintf(data + len, MAX - len, fmt, va); va_end(va); LOKI_ASSERT(extra < MAX - len); len += extra; }
 
-  int  max() { return MAX; };
+  void clear() { len = 0; data[0] = 0; }
+  int  max()   { return MAX; };
 
   union
   {
@@ -110,9 +111,29 @@ const int      LOKI_TARGET_DIFFICULTY                       = 120;
 const int      LOKI_STAKING_EXCESS_BLOCKS                   = 20;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(30);
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
-using loki_addr                                             = loki_buffer<97 + 1>; // NOTE: Mainnet addresses are 95 chars, testnet addresses are 97 and + 1 for null terminator.
-using loki_transaction_id                                   = loki_buffer<64 + 1>;
-using loki_snode_key                                        = loki_buffer<64 + 1>;
+
+using loki_transaction_id                                   = loki_buffer<64  + 1>;
+using loki_snode_key                                        = loki_buffer<64  + 1>;
+using loki_payment_id16                                     = loki_buffer<16  + 1>;
+using loki_payment_id64                                     = loki_buffer<64  + 1>;
+
+struct loki_addr
+{
+  enum type_t
+  {
+    normal,
+    integrated,
+  };
+
+  type_t type;
+  void set_normal_addr    (char const *src) { type = type_t::normal;     buf.clear(); if (src[95] == ' ') buf.append("%.*s", 95, src); else buf.append("%.*s", 97, src); }
+  void set_integrated_addr(char const *src) { type = type_t::integrated; buf.clear(); buf.append("%.*s", buf.max(), src); }
+
+  // NOTE: Mainnet addresses are 95 chars, testnet addresses are 97 and + 1 for null terminator.
+  // Integrated addresses are 108 characters
+  // TODO(doyle): How long are testnet integrated addresses?
+  loki_buffer<108 + 1> buf;
+};
 
 struct loki_contributor
 {
@@ -127,6 +148,7 @@ struct loki_transaction
   uint64_t            atomic_amount;
   uint64_t            fee;
 };
+
 
 struct loki_hardfork
 {

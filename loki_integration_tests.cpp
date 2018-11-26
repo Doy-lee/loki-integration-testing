@@ -142,6 +142,7 @@ loki_scratch_buf itest_read_from_stdout_mem(in_out_shared_mem *shared_mem)
   result.len         = strlen(output);
   LOKI_ASSERT(result.len <= result.max());
   memcpy(result.data, output, result.len);
+  result.data[result.len] = 0;
   return result;
 }
 
@@ -351,21 +352,27 @@ int main(int, char **)
   //  - transferring big amounts of loki
   //  - staking with payment id disallowed
 
-#if 0
-  RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
-  RUN_TEST(prepare_registration__solo_auto_stake);
-  RUN_TEST(register_service_node__gets_payed_expires_and_returns_funds);
-  RUN_TEST(register_service_node__grace_period);
-  RUN_TEST(register_service_node__cant_register_twice);
+#if 1
+  RUN_TEST(prepare_registration__check_solo_auto_stake);
+  RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
+
+  RUN_TEST(register_service_node__allow_4_stakers);
+  RUN_TEST(register_service_node__check_gets_payed_expires_and_returns_funds);
+  RUN_TEST(register_service_node__check_grace_period);
+  RUN_TEST(register_service_node__disallow_register_twice);
+
+  RUN_TEST(stake__allow_incremental_staking_until_node_active);
   RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
   RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  RUN_TEST(stake__from_subaddress);
-  RUN_TEST(stake__incremental_staking_until_node_active);
-  RUN_TEST(stake__to_non_registered_node_disallowed);
-  RUN_TEST(transfer__expect_fee_amount);
-  RUN_TEST(transfer__expect_fee_amount_bulletproofs);
+  RUN_TEST(stake__disallow_from_subaddress);
+  RUN_TEST(stake__disallow_payment_id);
+  RUN_TEST(stake__disallow_to_non_registered_node);
+
+  RUN_TEST(transfer__check_fee_amount);
+  RUN_TEST(transfer__check_fee_amount_bulletproofs);
+
 #else
-  RUN_TEST(stake__to_non_registered_node_disallowed);
+  RUN_TEST(stake__disallow_payment_id);
 #endif
 
   int num_tests_passed = 0;

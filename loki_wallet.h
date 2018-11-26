@@ -15,26 +15,31 @@ struct wallet_params
 };
 
 // TODO(doyle): This function should probably run by default since you almost always want it
-void             wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params = {});
+void                wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params = {});
 
-bool             wallet_address                     (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
-loki_addr        wallet_address_new                 (wallet_t *wallet);
-void             wallet_exit                        (wallet_t *wallet);
-uint64_t         wallet_balance                     (wallet_t *wallet, uint64_t *unlocked_balance);
-void             wallet_refresh                     (wallet_t *wallet, int refresh_wait_time_in_ms = 2000);
-bool             wallet_set_daemon                  (wallet_t *wallet, struct daemon_t const *daemon);
-bool             wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
-uint64_t         wallet_status                      (wallet_t *wallet); // return: The current height the wallet is synced at
-loki_transaction wallet_sweep_all                   (wallet_t *wallet, char      const *dest);
-loki_transaction wallet_transfer                    (wallet_t *wallet, char      const *dest, uint64_t amount); // TODO(doyle): We only support whole amounts. Not atomic units either.
-loki_transaction wallet_transfer                    (wallet_t *wallet, loki_addr const *dest, uint64_t amount);
-void             wallet_mine_atleast_n_blocks       (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 500);
-inline void      wallet_mine_unlock_time_blocks     (wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
-void             wallet_mine_for_n_milliseconds     (wallet_t *wallet, int milliseconds);
-uint64_t         wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
+bool                wallet_address                     (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
+loki_addr           wallet_address_new                 (wallet_t *wallet);
+uint64_t            wallet_balance                     (wallet_t *wallet, uint64_t *unlocked_balance);
+void                wallet_exit                        (wallet_t *wallet);
+loki_addr           wallet_integrated_address          (wallet_t *wallet);
+loki_payment_id64   wallet_payment_id                  (wallet_t *wallet);
+void                wallet_refresh                     (wallet_t *wallet, int refresh_wait_time_in_ms = 2000);
+bool                wallet_set_daemon                  (wallet_t *wallet, struct daemon_t const *daemon);
+bool                wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
+uint64_t            wallet_status                      (wallet_t *wallet); // return: The current height the wallet is synced at
 
-// TODO(doyle): This should return the transaction
-bool             wallet_register_service_node       (wallet_t *wallet, char const *registration_cmd);
+// TODO(doyle): Need to support integrated address
+loki_transaction    wallet_sweep_all                   (wallet_t *wallet, char      const *dest);
+loki_transaction    wallet_transfer                    (wallet_t *wallet, char      const *dest, uint64_t amount); // TODO(doyle): We only support whole amounts. Not atomic units either.
+loki_transaction    wallet_transfer                    (wallet_t *wallet, loki_addr const *dest, uint64_t amount);
+
+void                wallet_mine_atleast_n_blocks       (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 500);
+inline void         wallet_mine_unlock_time_blocks     (wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
+void                wallet_mine_for_n_milliseconds     (wallet_t *wallet, int milliseconds);
+uint64_t            wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
+
+// TODO(doyle): Thi s should return the transaction
+bool                wallet_register_service_node       (wallet_t *wallet, char const *registration_cmd);
 
 #endif // LOKI_WALLET_H
 
@@ -81,7 +86,7 @@ bool wallet_address(wallet_t *wallet, int index, loki_addr *addr)
     char const *end   = str_skip_to_next_whitespace(start);
     int len           = static_cast<int>(end - start);
     LOKI_ASSERT(len > 0);
-    addr->append("%.*s", len, start);
+    addr->set_normal_addr(start);
   }
   return true;
 }
@@ -96,11 +101,8 @@ loki_addr wallet_address_new(wallet_t *wallet)
   char const *addr_name   = str_skip_to_next_word(&ptr);
   assert(str_match(addr_name, "(Untitled address)"));
 
-  char const *addr_end = str_skip_to_next_whitespace(addr);
-  int len              = static_cast<int>(addr_end - addr);
-
-  loki_addr result     = {};
-  result.append("%.*s", len, addr);
+  loki_addr result = {};
+  result.set_normal_addr(addr);
 
   return result;
 }
@@ -109,6 +111,39 @@ void wallet_exit(wallet_t *wallet)
 {
   itest_write_to_stdin_mem(&wallet->shared_mem, "exit");
   os_sleep_ms(500);
+}
+
+loki_addr wallet_integrated_address(wallet_t *wallet)
+{
+  // Example
+  // Random payment ID: <d774b8dbac3b1c72>
+  // Matching integrated address: TGAv1vAJmWm64Agf5uPZp87FaHsSxGMKbJpF5RTqcoNCGMciaqKcw8bVv4p5XeY9kZ7RnRjVpdrtLMosWHH85Kt1crWcWwZH9YN1FAg7NR2d 
+  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "integrated_address");
+
+  LOKI_ASSERT_MSG(str_find(output.c_str, "Matching integrated address: "), "Failed to match in: %s", output.c_str);
+  char const *start = str_find(output.c_str, "Matching integrated address:");
+  start             = str_find(start, ":");
+  start             = str_skip_to_next_alphanum(start);
+
+  loki_addr result = {};
+  result.set_integrated_addr(start);
+  return result;
+}
+
+loki_payment_id64 wallet_payment_id(wallet_t *wallet)
+{
+  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "payment_id");
+
+  // Example
+  // Random payment ID: <73e4d298a578a80187c0894971a53f7a997ff1ca63b709cc9d387df92344f96f>
+  LOKI_ASSERT(str_match(output.c_str, "Random payment ID: "));
+
+  char const *start = str_find(output.c_str, "<");
+  start++;
+
+  loki_payment_id64 result = {};
+  result.append("%.*s", result.max(), start);
+  return result;
 }
 
 uint64_t wallet_balance(wallet_t *wallet, uint64_t *unlocked_balance)
@@ -149,7 +184,7 @@ void wallet_refresh(wallet_t *wallet, int refresh_wait_time_in_ms)
 
 bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id)
 {
-  loki_buffer<512> cmd("stake %s %s %zu", service_node_key->c_str, contributor_addr->c_str, amount);
+  loki_buffer<512> cmd("stake %s %s %zu", service_node_key->c_str, contributor_addr->buf.c_str, amount);
   itest_write_to_stdin_mem(&wallet->shared_mem, cmd.c_str);
 
   // TODO(doyle): Skip this. Stake actually triggers a refresh in the wallet, so
@@ -229,7 +264,7 @@ loki_transaction wallet_sweep_all(wallet_t *wallet, char const *dest)
   itest_write_to_stdin_mem(&wallet->shared_mem, "y");
 
   loki_transaction result = {};
-  result.dest = dest;
+  result.dest.set_normal_addr(dest);
 
   for (;;)
   {
@@ -269,7 +304,7 @@ loki_transaction wallet_transfer(wallet_t *wallet, char const *dest, uint64_t am
     output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "y");
 
   loki_transaction result = {};
-  result.dest             = dest;
+  result.dest.set_normal_addr(dest);
 
   // TODO(doyle): Add an atomic amount to printable money string and check the amount here
   for (;;)
@@ -294,7 +329,7 @@ loki_transaction wallet_transfer(wallet_t *wallet, char const *dest, uint64_t am
 
 loki_transaction wallet_transfer(wallet_t *wallet, loki_addr const *dest, uint64_t amount)
 {
-  loki_transaction result = wallet_transfer(wallet, dest->c_str, amount);
+  loki_transaction result = wallet_transfer(wallet, dest->buf.c_str, amount);
   return result;
 }
 

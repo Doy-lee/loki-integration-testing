@@ -43,7 +43,6 @@ void print_test_results(test_result const *test)
     int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
     int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
 
-    fprintf(stdout, "%s", test->name.c_str);
     for (int i = 0; i < remaining_len; ++i) fputc('.', stdout);
     fprintf(stdout, LOKI_ANSI_COLOR_RED "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
     fprintf(stdout, "  Message: %s\n", test->fail_msg.c_str);
@@ -54,7 +53,6 @@ void print_test_results(test_result const *test)
     int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
     int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
 
-    fprintf(stdout, "%s", test->name.c_str);
     for (int i = 0; i < remaining_len; ++i) fputc('.', stdout);
     fprintf(stdout, LOKI_ANSI_COLOR_GREEN "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
   }
@@ -341,15 +339,16 @@ test_result register_service_node__check_grace_period()
   // TODO(doyle): Assumes fakechain
   // Mine until within the grace re-registration range
   {
-    int const STAKING_DURATION = 30; // TODO(doyle): Workaround for inability to print_sn_status
+    int const STAKING_DURATION = 30; // TODO(doyle): Workaround for inability to print_sn_status and see the actual expiry
     daemon_status_t status     = daemon_status(&daemon);
     int blocks_to_mine         = STAKING_DURATION - LOKI_STAKING_EXCESS_BLOCKS;
-    wallet_mine_atleast_n_blocks(&wallet, blocks_to_mine, 50/*mining_duration_in_ms*/);
+    wallet_mine_atleast_n_blocks(&wallet, blocks_to_mine, 25/*mining_duration_in_ms*/);
 
     uint64_t wallet_height = wallet_status(&wallet);
-    EXPECT(result, wallet_height <= status.height + STAKING_DURATION,
+    EXPECT(result, wallet_height < status.height + STAKING_DURATION,
         "We mined too many blocks! We need to mine within %d blocks of expiry and re-register within that time frame to test the grace period. The current wallet height: %d, node expired at height: %d",
         LOKI_STAKING_EXCESS_BLOCKS, wallet_height, status.height + STAKING_DURATION);
+    EXPECT(result, daemon_print_sn_status(&daemon), "We should still be registered, i.e. within the re-register grace period");
   }
 
   // Re-register within this grace period, re-use the registration params

@@ -343,6 +343,7 @@ int main(int, char **)
 
 #define RUN_TEST(test_function) \
   results[results_index++] = test_function(); \
+  fprintf(stdout, #test_function); \
   print_test_results(&results[results_index-1])
 
   // TODO(doyle):
@@ -352,7 +353,7 @@ int main(int, char **)
   //  - transferring big amounts of loki
   //  - staking with payment id disallowed
 
-#if 1
+#if 0
   RUN_TEST(prepare_registration__check_solo_auto_stake);
   RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
 
@@ -372,7 +373,7 @@ int main(int, char **)
   RUN_TEST(transfer__check_fee_amount_bulletproofs);
 
 #else
-  RUN_TEST(stake__disallow_payment_id);
+  RUN_TEST(register_service_node__check_grace_period);
 #endif
 
   int num_tests_passed = 0;

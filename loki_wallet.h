@@ -20,7 +20,7 @@ void             wallet_set_default_testing_settings(wallet_t *wallet, wallet_pa
 bool             wallet_address                     (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
 loki_addr        wallet_address_new                 (wallet_t *wallet);
 void             wallet_exit                        (wallet_t *wallet);
-uint64_t         wallet_balance                 (wallet_t *wallet, uint64_t *unlocked_balance);
+uint64_t         wallet_balance                     (wallet_t *wallet, uint64_t *unlocked_balance);
 void             wallet_refresh                     (wallet_t *wallet, int refresh_wait_time_in_ms = 2000);
 bool             wallet_set_daemon                  (wallet_t *wallet, struct daemon_t const *daemon);
 bool             wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
@@ -159,10 +159,16 @@ bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, loki
   // To fix this, we need to make shared mem smarter and have a queue of
   // stdout lines to process. Because of this, just sleep and hope the refresh
   // is done in time.
-  os_sleep_s(2);
 #if 0
-  if (!str_find(output.c_str, "Spending from address index "))
-    return false;
+  os_sleep_s(2);
+#else
+  for (;;)
+  {
+    loki_scratch_buf output = itest_read_from_stdout_mem(&wallet->shared_mem);
+    if (str_find(output.c_str, "Spending from address index ")) break;
+    if (str_find(output.c_str, "Error: "))                      return false;
+    os_sleep_ms(1000);
+  }
 #endif
 
   loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "y"); // Confirm?

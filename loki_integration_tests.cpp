@@ -346,30 +346,26 @@ int main(int, char **)
 
   // TODO(doyle):
   //  - locked transfers unlock after the locked time
-  //  - service node expires after staking duration is over
-  //  - check payouts
-  //  - staking funds return
   //  - show_transfers distinguishes payments
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
   //  - staking with payment id disallowed
-  //  - staking to a full service node disallowed
-  //  - staking to a full service node allowed it contributor
-  //  - staking to non existent service node
-  //  - incremental staking until completely fulfilled
 
-#if 1
+#if 0
   RUN_TEST(prepare_registration__100_percent_operator_cut_auto_stake);
   RUN_TEST(prepare_registration__solo_auto_stake);
-  RUN_TEST(register_service_node__4_stakers);
   RUN_TEST(register_service_node__gets_payed_expires_and_returns_funds);
   RUN_TEST(register_service_node__grace_period);
   RUN_TEST(register_service_node__cant_register_twice);
-  RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
   RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
+  RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
   RUN_TEST(stake__from_subaddress);
+  RUN_TEST(stake__incremental_staking_until_node_active);
+  RUN_TEST(stake__to_non_registered_node_disallowed);
   RUN_TEST(transfer__expect_fee_amount);
   RUN_TEST(transfer__expect_fee_amount_bulletproofs);
+#else
+  RUN_TEST(stake__to_non_registered_node_disallowed);
 #endif
 
   int num_tests_passed = 0;

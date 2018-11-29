@@ -11,6 +11,7 @@
 #include "external/stb_sprintf.h"
 
 #include "loki_daemon.h"
+#include "loki_str.h"
 
 FILE *os_launch_process(char const *cmd_line)
 {
@@ -37,8 +38,8 @@ void os_kill_process(FILE *process)
 char const LOKI_CMD_FMT[]        = "start bin/lokid.exe %s";
 char const LOKI_WALLET_CMD_FMT[] = "start bin/loki-wallet-cli.exe %s";
 #else
-char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
+char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash\"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
 #endif
 
 struct state_t
@@ -69,7 +70,7 @@ static char const *parse_message(char const *msg_buf, int msg_buf_len, uint32_t 
 
 void start_daemon_params::add_hardfork(int version, int height)
 {
-  LOKI_ASSERT_MSG(this->num_hardforks < LOKI_ARRAY_COUNT(this->hardforks), "Out of space in hardfork storage, bump up the hardfork array size, current size: %zu", LOKI_ARRAY_COUNT(this->hardforks));
+  LOKI_ASSERT_MSG(this->num_hardforks < (int)LOKI_ARRAY_COUNT(this->hardforks), "Out of space in hardfork storage, bump up the hardfork array size, current size: %zu", LOKI_ARRAY_COUNT(this->hardforks));
 
   if (this->num_hardforks > 0)
   {
@@ -93,7 +94,7 @@ void itest_write_to_stdin_mem(in_out_shared_mem *shared_mem, char const *cmd, in
 
   char *ptr     = reinterpret_cast<char *>(shared_mem->stdin_mem.Data());
   int total_len = static_cast<int>(sizeof(shared_mem->stdin_cmd_index) + sizeof(MSG_MAGIC_BYTES) + cmd_len);
-  LOKI_ASSERT(total_len < shared_mem->stdin_mem.Size());
+  LOKI_ASSERT(total_len < (int)shared_mem->stdin_mem.Size());
 
   // Write message to shared memory
   {
@@ -111,12 +112,20 @@ void itest_write_to_stdin_mem(in_out_shared_mem *shared_mem, char const *cmd, in
   }
 }
 
+// TODO(doyle): Use this and replace alot of the read_and_get_result for stability
+loki_scratch_buf itest_blocking_read_from_stdout_mem_until(in_out_shared_mem *shared_mem, char const *find_str)
+{
+  for (;;)
+  {
+    loki_scratch_buf output = itest_read_from_stdout_mem(shared_mem);
+    if (str_find(output.c_str, find_str)) return output;
+    os_sleep_ms(100); // TODO(doyle): Hack. Keep reading until we see this text basically
+  }
+}
+
 loki_scratch_buf itest_read_from_stdout_mem(in_out_shared_mem *shared_mem)
 {
-  static loki_scratch_buf last_output   = {};
-
-  uint32_t last_cmd_index = 0;
-  char const *output      = nullptr;
+  char const *output = nullptr;
   for(;;)
   {
     // TODO(doyle): Make it so we never need to sleep, or reduce this number as
@@ -130,16 +139,15 @@ loki_scratch_buf itest_read_from_stdout_mem(in_out_shared_mem *shared_mem)
     uint32_t cmd_index = 0;
     output             = parse_message(data, shared_mem->stdout_mem.Size(), &cmd_index);
 
-    if (output && last_cmd_index < cmd_index)
+    if (output && shared_mem->stdout_cmd_index < cmd_index)
     {
-      last_cmd_index = cmd_index;
-      last_output    = output;
+      shared_mem->stdout_cmd_index = cmd_index;
       break;
     }
   }
 
   loki_scratch_buf result = {};
-  result.len         = strlen(output);
+  result.len              = strlen(output);
   LOKI_ASSERT(result.len <= result.max());
   memcpy(result.data, output, result.len);
   result.data[result.len] = 0;
@@ -173,50 +181,71 @@ bool os_file_delete(char const *path)
     return result;
 }
 
-void start_daemon(daemon_t *daemon, start_daemon_params params)
+void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params)
 {
-  loki_scratch_buf arg_buf = {};
-  arg_buf.append("--p2p-bind-port %d ",            daemon->p2p_port);
-  arg_buf.append("--rpc-bind-port %d ",            daemon->rpc_port);
-  arg_buf.append("--zmq-rpc-bind-port %d ",        daemon->zmq_rpc_port);
-  arg_buf.append("--data-dir ./output/daemon_%d ", daemon->id);
-  arg_buf.append("--offline ");
-
-  if (params.service_node)
-    arg_buf.append("--service-node ");
-
-  if (params.fixed_difficulty > 0)
-    arg_buf.append("--fixed-difficulty %d ", params.fixed_difficulty);
-
-
-  if (params.num_hardforks > 0)
+  for (int curr_daemon_index = 0; curr_daemon_index < num_daemons; ++curr_daemon_index)
   {
-    arg_buf.append("--integration-test-hardforks-override \\\"");
-    for (int i = 0; i < params.num_hardforks; ++i)
+    daemon_t *curr_daemon = daemons + curr_daemon_index;
+
+    loki_scratch_buf arg_buf = {};
+    arg_buf.append("--p2p-bind-port %d ",            curr_daemon->p2p_port);
+    arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
+    arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
+    arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
+
+    if (num_daemons > 1)
+      arg_buf.append("--no-p2p-ipv6 ");
+
+    if (num_daemons == 1)
+      arg_buf.append("--offline ");
+
+    if (params.service_node)
+      arg_buf.append("--service-node ");
+
+    if (params.fixed_difficulty > 0)
+      arg_buf.append("--fixed-difficulty %d ", params.fixed_difficulty);
+
+
+    if (params.num_hardforks > 0)
     {
-      loki_hardfork hardfork = params.hardforks[i];
-      arg_buf.append("%d:%d", hardfork.version, hardfork.height);
-      if (i != (params.num_hardforks - 1)) arg_buf.append(", ");
+      arg_buf.append("--integration-test-hardforks-override \\\"");
+      for (int i = 0; i < params.num_hardforks; ++i)
+      {
+        loki_hardfork hardfork = params.hardforks[i];
+        arg_buf.append("%d:%d", hardfork.version, hardfork.height);
+        if (i != (params.num_hardforks - 1)) arg_buf.append(", ");
+      }
+
+      arg_buf.append("\\\" ");
+      LOKI_ASSERT(params.nettype == loki_nettype::fakenet);
+    }
+    else
+    {
+      if (params.nettype == loki_nettype::testnet)
+        arg_buf.append("--testnet ");
+      else if (params.nettype == loki_nettype::stagenet)
+        arg_buf.append("--stagnet ");
     }
 
-    arg_buf.append("\\\" ");
-    LOKI_ASSERT(params.nettype == loki_nettype::fakenet);
-  }
-  else
-  {
-    if (params.nettype == loki_nettype::testnet)
-      arg_buf.append("--testnet ");
-    else if (params.nettype == loki_nettype::stagenet)
-      arg_buf.append("--stagnet ");
-  }
+    arg_buf.append("--integration-test-shared-mem-stdin %s ", curr_daemon->shared_mem.stdin_mem.Path().c_str());
+    arg_buf.append("--integration-test-shared-mem-stdout %s ", curr_daemon->shared_mem.stdout_mem.Path().c_str());
 
-  arg_buf.append("--integration-test-shared-mem-stdin %s ", daemon->shared_mem.stdin_mem.Path().c_str());
-  arg_buf.append("--integration-test-shared-mem-stdout %s ", daemon->shared_mem.stdout_mem.Path().c_str());
-  itest_reset_shared_memory(&daemon->shared_mem);
+    for (int other_daemon_index = 0; other_daemon_index < num_daemons; ++other_daemon_index)
+    {
+      if (curr_daemon_index == other_daemon_index)
+        continue;
 
-  loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
-  daemon->proc_handle = os_launch_process(cmd_buf.data);
-  os_sleep_ms(1000); // TODO(doyle): HACK to let enough time for the daemon to init
+      daemon_t const *other_daemon = daemons + other_daemon_index;
+      arg_buf.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
+    }
+
+    itest_reset_shared_memory(&curr_daemon->shared_mem);
+    loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
+    curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
+
+    // TODO(doyle): HACK to let enough time for the daemon to init
+    os_sleep_ms(1000);
+  }
 }
 
 // L6cuiMjoJs7hbv5qWYxCnEB1WJG827jrDAu4wEsrsnkYVu3miRHFrBy9pGcYch4TDn6dgatqJugUafWxCAELiq461p5mrSa
@@ -225,8 +254,15 @@ void start_daemon(daemon_t *daemon, start_daemon_params params)
 daemon_t create_and_start_daemon(start_daemon_params params)
 {
   daemon_t result = create_daemon();
-  start_daemon(&result, params);
+  start_daemon(&result, 1, params);
   return result;
+}
+
+void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params params)
+{
+  for (int i = 0; i < num_daemons; ++i)
+    daemons[i] = create_daemon();
+  start_daemon(daemons, num_daemons, params);
 }
 
 wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
@@ -338,20 +374,20 @@ int main(int, char **)
     printf("%s\n", result.data);
   }
 #else
-  test_result results[128];
-  int results_index = 0;
-
-#define RUN_TEST(test_function) \
-  results[results_index++] = test_function(); \
-  fprintf(stdout, #test_function); \
-  print_test_results(&results[results_index-1])
-
   // TODO(doyle):
   //  - locked transfers unlock after the locked time
   //  - show_transfers distinguishes payments
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
   //  - staking with payment id disallowed
+
+  test_result results[128];
+  int results_index = 0;
+
+#define RUN_TEST(test_function) \
+  fprintf(stdout, #test_function); \
+  results[results_index++] = test_function(); \
+  print_test_results(&results[results_index-1])
 
 #if 0
   RUN_TEST(prepare_registration__check_solo_auto_stake);
@@ -373,7 +409,7 @@ int main(int, char **)
   RUN_TEST(transfer__check_fee_amount_bulletproofs);
 
 #else
-  RUN_TEST(register_service_node__check_grace_period);
+  RUN_TEST(deregistration__1_unresponsive_node);
 #endif
 
   int num_tests_passed = 0;

@@ -30,4 +30,6 @@ test_result stake__disallow_to_non_registered_node();
 test_result transfer__check_fee_amount();
 test_result transfer__check_fee_amount_bulletproofs();
 
+test_result deregistration__1_unresponsive_node();
+
 #endif // LOKI_TEST_CASES_H

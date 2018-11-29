@@ -114,7 +114,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
 
       char const *owner_fee_output      = str_skip_to_next_word(&ptr);
       char const *owner_addr_output     = str_skip_to_next_word(&ptr);
-      char const *owner_portions_output = str_skip_to_next_word(&ptr);
+      // char const *owner_portions_output = str_skip_to_next_word(&ptr);
 
       result &= str_match(owner_fee_output,      owner_fee.c_str);
       result &= str_match(owner_addr_output,     owner->addr.buf.c_str);
@@ -252,10 +252,11 @@ bool daemon_print_sn_status(daemon_t *daemon)
 {
 
   loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_sn_status");
-  if (str_match("No service node is currently known on the network for:", output.c_str))
-    return false;
+  printf("%s\n", output.c_str);
+  if (str_match(output.c_str, "Amount")) // Last line of print sn status
+    return true;
 
-  return true;
+  return false;
   // TODO(doyle): Printing out service node information is done using multiple
   // calls to tools::msg_writer(). Each msg write causes a flush to stdout in
   // shared memory meaning we only really receive the first/last message by the

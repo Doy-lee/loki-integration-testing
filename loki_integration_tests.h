@@ -95,10 +95,11 @@ struct in_out_shared_mem
   shoom::Shm stdout_mem;
 };
 
-void             itest_write_to_stdin_mem               (in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
-loki_scratch_buf itest_read_from_stdout_mem             (in_out_shared_mem *shared_mem);
-loki_scratch_buf itest_write_to_stdin_mem_and_get_result(in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
-void             itest_reset_shared_memory              (in_out_shared_mem *shared_mem);
+void             itest_write_to_stdin_mem                 (in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
+loki_scratch_buf itest_blocking_read_from_stdout_mem_until(in_out_shared_mem *shared_mem, char const *find_str);
+loki_scratch_buf itest_read_from_stdout_mem               (in_out_shared_mem *shared_mem);
+loki_scratch_buf itest_write_to_stdin_mem_and_get_result  (in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
+void             itest_reset_shared_memory                (in_out_shared_mem *shared_mem);
 
 //
 // Loki Blockchain Primitives
@@ -111,6 +112,8 @@ const int      LOKI_TARGET_DIFFICULTY                       = 120;
 const int      LOKI_STAKING_EXCESS_BLOCKS                   = 20;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(30);
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
+const int      LOKI_REORG_SAFETY_BUFFER                     = 20;
+const int      LOKI_QUORUM_SIZE                             = 10;
 
 using loki_transaction_id                                   = loki_buffer<64  + 1>;
 using loki_snode_key                                        = loki_buffer<64  + 1>;
@@ -205,11 +208,12 @@ struct start_wallet_params
   bool      allow_mismatched_daemon_version = false;
 };
 
-wallet_t create_wallet          (loki_nettype type);
-daemon_t create_daemon          ();
-void     start_wallet           (wallet_t *wallet, start_wallet_params params = {});
-void     start_daemon           (daemon_t *daemon, start_daemon_params params = {});
-daemon_t create_and_start_daemon(start_daemon_params params = {});
+wallet_t create_wallet                 (loki_nettype type);
+daemon_t create_daemon                 ();
+void     start_wallet                  (wallet_t *wallet, start_wallet_params params = {});
+void     start_daemon                  (daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {});
+daemon_t create_and_start_daemon       (start_daemon_params params = {});
+void     create_and_start_multi_daemons(daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {});
 
 // TODO(doyle): The create and start wallet function launches the wallet
 // separately to create on the commandline and immediately exits. Then launches

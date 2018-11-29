@@ -783,3 +783,92 @@ test_result transfer__check_fee_amount_bulletproofs()
 
   return result;
 }
+
+test_result deregistration__1_unresponsive_node()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.add_hardfork(7, 0);
+  daemon_params.add_hardfork(8, 1);
+  daemon_params.add_hardfork(9, 2);
+  daemon_params.add_hardfork(10, 3);
+
+  daemon_t daemons[2 + 1]                              = {};
+  loki_snode_key snode_keys[LOKI_ARRAY_COUNT(daemons)] = {};
+
+  create_and_start_multi_daemons(daemons, LOKI_ARRAY_COUNT(daemons), daemon_params);
+  for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+    LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = daemons + 0;
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  wallet_set_default_testing_settings(&wallet);
+
+  LOKI_DEFER
+  {
+    wallet_exit(&wallet);
+    for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+      daemon_exit(daemons + i);
+  };
+
+  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+
+  int const FAKECHAIN_STAKING_REQUIREMENT = 100;
+  wallet_mine_until_unlocked_balance(&wallet, static_cast<int>(LOKI_ARRAY_COUNT(daemons) * FAKECHAIN_STAKING_REQUIREMENT)); // TODO(doyle): Assuming staking requirement of 100 fakechain
+
+  daemon_prepare_registration_params register_params           = {};
+  register_params.contributors[register_params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
+  wallet_address(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
+
+  for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+  {
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration(daemons + i, &register_params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),                 "Failed to register service node");
+
+    if (i == 2)
+      daemon_exit(daemons + i); // Prematurely kill a daemon, before the registration gets onto the chain so it doesn't ping
+  }
+
+  wallet_mine_atleast_n_blocks(&wallet, 2, 50/*mining_duration_in_ms*/); // Get onto chain
+
+#if 0
+  for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+  {
+    while(daemon_print_sn_status(daemons + i) == false)
+      os_sleep_ms(1000);
+  }
+#else
+      os_sleep_ms(5000);
+#endif
+
+  // TODO(doyle): There is abit of randomness here in that if by chance the 5 blocks we mine don't produce a quorum to let us vote off the dead node
+  uint64_t old_height = wallet_status(&wallet);
+  wallet_mine_atleast_n_blocks(&wallet, LOKI_REORG_SAFETY_BUFFER + 5, 50/*mining_duration_in_ms*/);
+  uint64_t new_height = wallet_status(&wallet);
+
+  uint64_t blocks_mined = new_height - old_height;
+  EXPECT(result,
+      blocks_mined < 30 + LOKI_STAKING_EXCESS_BLOCKS,
+      "We mined too many blocks everyone has naturally expired meaning we can't check deregistration status! We mined: %d, the maximum blocks we can mine: %d",
+      30 + LOKI_STAKING_EXCESS_BLOCKS);
+
+  for (int i = 0; i < (int)LOKI_ARRAY_COUNT(daemons); ++i)
+  {
+    daemon_t *daemon = daemons + i;
+    if (i == 2)
+    {
+      start_daemon(daemon + 2, 1, daemon_params);
+      EXPECT(result, daemon_print_sn_status(daemon) == false, "Daemon %d should of been deregistered as we killed it early!", i);
+    }
+    else
+    {
+      EXPECT(result, daemon_print_sn_status(daemon) == true, "Daemon %d should still be online, pingining and alive!", i);
+    }
+  }
+
+  return result;
+}

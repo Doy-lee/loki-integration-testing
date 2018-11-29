@@ -109,7 +109,6 @@ ShoomError Shm::CreateOrOpen(int flag) {
 
   fd_ = shm_open(path_.c_str(), flags, 0755);
   if (fd_ < 0) {
-    int error_value = errno;
     if (flag != 0) {
       return kErrorCreationFailed;
     } else {

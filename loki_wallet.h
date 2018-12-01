@@ -304,8 +304,8 @@ loki_transaction wallet_transfer(wallet_t *wallet, char const *dest, uint64_t am
   // TODO(doyle): Add an atomic amount to printable money string and check the amount here
   for (;;)
   {
-    output = itest_read_from_stdout_mem(&wallet->shared_mem);
     if (str_find(output.c_str, "Spending from address index ")) break;
+    output = itest_read_from_stdout_mem(&wallet->shared_mem);
     os_sleep_ms(1000); // TODO(doyle): Hack. Keep reading until we see this text basically
   }
 
@@ -366,11 +366,15 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
 
 bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd)
 {
-  itest_write_to_stdin_mem(&wallet->shared_mem, registration_cmd);
-  itest_blocking_read_from_stdout_mem_until(&wallet->shared_mem, "Spending from address index");
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "y"); // Confirm?
-  bool result = str_find(output.c_str, "Wait for transaction to be included in a block");
-  return result;
+  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, registration_cmd);
+  if (str_find(output.c_str, "Spending from address index"))
+  {
+    output = itest_write_to_stdin_mem_and_get_result(&wallet->shared_mem, "y"); // Confirm?
+    bool result = str_find(output.c_str, "Wait for transaction to be included in a block");
+    return result;
+  }
+
+  return false;
 }
 
 #endif

@@ -91,7 +91,7 @@ struct in_out_shared_mem
   uint32_t   stdin_cmd_index;
   shoom::Shm stdin_mem;
 
-  uint32_t  stdout_cmd_index;
+  uint32_t   stdout_cmd_index;
   shoom::Shm stdout_mem;
 };
 
@@ -172,12 +172,12 @@ enum struct loki_nettype
 //
 struct daemon_t
 {
-  FILE       *proc_handle;
-  int         id;
-  bool        is_mining;
-  int         p2p_port;
-  int         rpc_port;
-  int         zmq_rpc_port;
+  FILE             *proc_handle;
+  int               id;
+  bool              is_mining;
+  int               p2p_port;
+  int               rpc_port;
+  int               zmq_rpc_port;
   in_out_shared_mem shared_mem;
 };
 

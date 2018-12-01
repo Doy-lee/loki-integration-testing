@@ -38,8 +38,8 @@ void os_kill_process(FILE *process)
 char const LOKI_CMD_FMT[]        = "start bin/lokid.exe %s";
 char const LOKI_WALLET_CMD_FMT[] = "start bin/loki-wallet-cli.exe %s";
 #else
-char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash\"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
+char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
 #endif
 
 struct state_t
@@ -99,16 +99,17 @@ void itest_write_to_stdin_mem(in_out_shared_mem *shared_mem, char const *cmd, in
   // Write message to shared memory
   {
     shared_mem->stdin_cmd_index++;
-    memcpy(ptr, &shared_mem->stdin_cmd_index, sizeof(shared_mem->stdin_cmd_index));
-    ptr += sizeof(shared_mem->stdin_cmd_index);
 
+    ptr += sizeof(shared_mem->stdin_cmd_index);
     memcpy(ptr, (char *)&MSG_MAGIC_BYTES, sizeof(MSG_MAGIC_BYTES));
     ptr += sizeof(MSG_MAGIC_BYTES);
 
     memcpy(ptr, cmd, cmd_len);
     ptr += cmd_len;
-
     ptr[0] = 0;
+
+    // Write cmd_index last to avoid race condition
+    memcpy(reinterpret_cast<char *>(shared_mem->stdin_mem.Data()), &shared_mem->stdin_cmd_index, sizeof(shared_mem->stdin_cmd_index));
   }
 }
 
@@ -379,23 +380,23 @@ int main(int, char **)
   //  - show_transfers distinguishes payments
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
-  //  - staking with payment id disallowed
 
   test_result results[128];
   int results_index = 0;
 
 #define RUN_TEST(test_function) \
   fprintf(stdout, #test_function); \
+  fflush(stdout); \
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
 
-#if 0
+  // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
+#if 1
   RUN_TEST(prepare_registration__check_solo_auto_stake);
   RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
 
   RUN_TEST(register_service_node__allow_4_stakers);
   RUN_TEST(register_service_node__check_gets_payed_expires_and_returns_funds);
-  RUN_TEST(register_service_node__check_grace_period);
   RUN_TEST(register_service_node__disallow_register_twice);
 
   RUN_TEST(stake__allow_incremental_staking_until_node_active);

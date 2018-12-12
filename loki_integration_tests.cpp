@@ -13,8 +13,8 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash \"";
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
 
 struct state_t
 {

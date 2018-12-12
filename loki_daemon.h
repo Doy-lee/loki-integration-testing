@@ -253,7 +253,7 @@ daemon_service_node_status_t daemon_print_sn_status(daemon_t *daemon)
   daemon_service_node_status_t result = {};
   loki_scratch_buf output             = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_sn_status");
 
-  if (str_find(output.c_str, "No service node is known on the network for"))
+  if (str_find(output.c_str, "No service node is currently known on the network"))
     return result;
 
   char const *registration_label               = str_find(output.c_str, "Service Node Registration State");

@@ -27,6 +27,8 @@
     assert(expr); \
   }
 
+using isize = ptrdiff_t;
+using usize = size_t;
 
 #define LOKI_ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOKI_CHAR_COUNT(array) (LOKI_ARRAY_COUNT(array) - 1)
@@ -38,6 +40,7 @@
 #define LOKI_MINUTES_TO_S(val) ((val) * 60)
 #define LOKI_HOURS_TO_S(val) ((val) * LOKI_MINUTES_TO_S(60))
 #define LOKI_DAYS_TO_S(val) ((val) * LOKI_HOURS_TO_S(24))
+#define LOKI_FOR_EACH(iterator, limit) for (isize iterator = 0; iterator < (isize)limit; ++iterator)
 
 template <typename procedure>
 struct loki_defer_
@@ -77,10 +80,6 @@ struct loki_buffer
 };
 
 using loki_scratch_buf = loki_buffer<8192>;
-
-void             os_sleep_s                       (int seconds);
-void             os_sleep_ms                      (int ms);
-bool             os_file_delete                   (char const *path);
 
 //
 // Integration Test Primitives
@@ -199,7 +198,8 @@ struct start_daemon_params
   int           num_hardforks;
   loki_nettype  nettype          = loki_nettype::testnet;
 
-  void add_hardfork(int version, int height); // NOTE: Sets nettype to mainnet
+  void add_hardfork                 (int version, int height); // NOTE: Sets nettype to mainnet
+  void load_latest_hardfork_versions();
 };
 
 struct start_wallet_params

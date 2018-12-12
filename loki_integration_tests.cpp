@@ -4,35 +4,14 @@
 #define SHOOM_IMPLEMENTATION
 #include "external/shoom.h"
 
-#include <chrono>
-#include <thread>
-
 #define STB_SPRINTF_IMPLEMENTATION
 #include "external/stb_sprintf.h"
 
+#define LOKI_OS_IMPLEMENTATION
+#include "loki_os.h"
+
 #include "loki_daemon.h"
 #include "loki_str.h"
-
-FILE *os_launch_process(char const *cmd_line)
-{
-  FILE *result = nullptr;
-#ifdef _WIN32
-  result = _popen(cmd_line, "r");
-#else
-  result = popen(cmd_line, "r");
-#endif
-  return result;
-}
-
-// TODO(loki): This doesn't work.
-void os_kill_process(FILE *process)
-{
-#ifdef _WIN32
-  _pclose(process);
-#else
-  pclose(process);
-#endif
-}
 
 #ifdef _WIN32
 char const LOKI_CMD_FMT[]        = "start bin/lokid.exe %s";
@@ -86,6 +65,15 @@ void start_daemon_params::add_hardfork(int version, int height)
   // means we need to go into fakenet mode. There's a refresh error I haven't
   // figured out yet.
   this->nettype = loki_nettype::fakenet;
+}
+
+void start_daemon_params::load_latest_hardfork_versions()
+{
+  LOKI_ASSERT(this->num_hardforks == 0);
+  this->add_hardfork(7, 0);
+  this->add_hardfork(8, 1);
+  this->add_hardfork(9, 2);
+  this->add_hardfork(10, 3);
 }
 
 void itest_write_to_stdin_mem(in_out_shared_mem *shared_mem, char const *cmd, int cmd_len)
@@ -162,26 +150,6 @@ loki_scratch_buf itest_write_to_stdin_mem_and_get_result(in_out_shared_mem *shar
   return result;
 }
 
-void os_sleep_s(int seconds)
-{
-  std::this_thread::sleep_for(std::chrono::milliseconds(seconds * 1000));
-}
-
-void os_sleep_ms(int ms)
-{
-  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-}
-
-bool os_file_delete(char const *path)
-{
-#if defined(_WIN32)
-    bool result = DeleteFileA(path);
-#else
-    bool result = (unlink(path) == 0);
-#endif
-    return result;
-}
-
 void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params)
 {
   for (int curr_daemon_index = 0; curr_daemon_index < num_daemons; ++curr_daemon_index)
@@ -193,9 +161,6 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
     arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
     arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
-
-    if (num_daemons > 1)
-      arg_buf.append("--no-p2p-ipv6 ");
 
     if (num_daemons == 1)
       arg_buf.append("--offline ");
@@ -242,6 +207,12 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
 
     itest_reset_shared_memory(&curr_daemon->shared_mem);
     loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
+
+    if (curr_daemon->id == 0)
+    {
+      continue;
+    }
+
     curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
 
     // TODO(doyle): HACK to let enough time for the daemon to init
@@ -391,7 +362,7 @@ int main(int, char **)
   print_test_results(&results[results_index-1])
 
   // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
-#if 1
+#if 0
   RUN_TEST(prepare_registration__check_solo_auto_stake);
   RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
 

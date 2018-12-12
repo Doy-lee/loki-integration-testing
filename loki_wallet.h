@@ -6,6 +6,8 @@
 //
 // Header
 //
+
+#include "loki_os.h"
 #include "loki_integration_tests.h"
 
 struct wallet_params

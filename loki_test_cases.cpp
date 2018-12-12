@@ -65,7 +65,12 @@ struct loki_err_context
   operator bool() { return success; }
 };
 
-#define INITIALISE_TEST_CONTEXT(test_result_var) test_result_var.name = loki_buffer<512>(__func__)
+#define INITIALISE_TEST_CONTEXT(test_result_var) test_result_var.name = loki_buffer<512>(__func__); \
+if (os_file_exists("./output/daemon_0")) \
+{ \
+  LOKI_ASSERT(os_file_dir_delete("./output")); \
+  LOKI_ASSERT(os_file_dir_make("./output")); \
+}
 
 test_result prepare_registration__check_solo_auto_stake()
 {
@@ -799,17 +804,21 @@ test_result deregistration__1_unresponsive_node()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
+#if 1
   start_daemon_params daemon_params = {};
-  daemon_params.add_hardfork(7, 0);
-  daemon_params.add_hardfork(8, 1);
-  daemon_params.add_hardfork(9, 2);
-  daemon_params.add_hardfork(10, 3);
+  daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemons[2 + 1]                              = {};
-  loki_snode_key snode_keys[LOKI_ARRAY_COUNT(daemons)] = {};
+#if 0
+  int const NUM_DAEMONS                  = LOKI_QUORUM_SIZE + 1;
+#else
+  int const NUM_DAEMONS                  = LOKI_QUORUM_SIZE;
+#endif
+  loki_snode_key snode_keys[NUM_DAEMONS] = {};
+  daemon_t daemons[NUM_DAEMONS]          = {};
+  daemon_t *daemon_to_deregister         = daemons + NUM_DAEMONS - 1;
 
-  create_and_start_multi_daemons(daemons, LOKI_ARRAY_COUNT(daemons), daemon_params);
-  for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+  create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params);
+  for (size_t i = 0; i < NUM_DAEMONS; ++i)
     LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
 
   start_wallet_params wallet_params = {};
@@ -820,40 +829,46 @@ test_result deregistration__1_unresponsive_node()
   LOKI_DEFER
   {
     wallet_exit(&wallet);
-    for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+    for (size_t i = 0; i < NUM_DAEMONS; ++i)
       daemon_exit(daemons + i);
   };
 
   wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
 
   int const FAKECHAIN_STAKING_REQUIREMENT = 100;
-  wallet_mine_until_unlocked_balance(&wallet, static_cast<int>(LOKI_ARRAY_COUNT(daemons) * FAKECHAIN_STAKING_REQUIREMENT)); // TODO(doyle): Assuming staking requirement of 100 fakechain
+  wallet_mine_until_unlocked_balance(&wallet, static_cast<int>(NUM_DAEMONS * FAKECHAIN_STAKING_REQUIREMENT)); // TODO(doyle): Assuming staking requirement of 100 fakechain
 
-  daemon_prepare_registration_params register_params           = {};
+  daemon_prepare_registration_params register_params                    = {};
   register_params.contributors[register_params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
   wallet_address(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
 
-  for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+  for (size_t i = 0; i < NUM_DAEMONS; ++i)
   {
     loki_scratch_buf registration_cmd = {};
-    EXPECT(result, daemon_prepare_registration(daemons + i, &register_params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),                 "Failed to register service node");
+    daemon_t *daemon                  = daemons + i;
+    EXPECT(result, daemon_prepare_registration (daemon, &register_params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),             "Failed to register service node");
 
-    if (i == 2)
-      daemon_exit(daemons + i); // Prematurely kill a daemon, before the registration gets onto the chain so it doesn't ping
+    if (daemon == daemon_to_deregister)
+      daemon_exit(daemon_to_deregister); // Prematurely kill a daemon, before the registration gets onto the chain so it doesn't ping
   }
 
   wallet_mine_atleast_n_blocks(&wallet, 2, 50/*mining_duration_in_ms*/); // Get onto chain
 
-#if 0
-  for (size_t i = 0; i < LOKI_ARRAY_COUNT(daemons); ++i)
+  // TODO(doyle): We can replace this with just checking the number of service nodes registered
+  LOKI_FOR_EACH(i, NUM_DAEMONS)
   {
-    while(daemon_print_sn_status(daemons + i) == false)
+    daemon_t *daemon = daemons + i;
+    if (daemon == daemon_to_deregister)
+      continue;
+
+    for (;;)
+    {
+      daemon_service_node_status_t node_status = daemon_print_sn_status(daemon);
+      if (node_status.registered) break;
       os_sleep_ms(1000);
+    }
   }
-#else
-      os_sleep_ms(5000);
-#endif
 
   // TODO(doyle): There is abit of randomness here in that if by chance the 5 blocks we mine don't produce a quorum to let us vote off the dead node
   uint64_t old_height = wallet_status(&wallet);
@@ -866,22 +881,61 @@ test_result deregistration__1_unresponsive_node()
       "We mined too many blocks everyone has naturally expired meaning we can't check deregistration status! We mined: %d, the maximum blocks we can mine: %d",
       30 + LOKI_STAKING_EXCESS_BLOCKS);
 
-  for (int i = 0; i < (int)LOKI_ARRAY_COUNT(daemons); ++i)
+  LOKI_FOR_EACH(i, NUM_DAEMONS)
+    daemon_exit(daemons + i);
+
+  os_sleep_ms(LOKI_SECONDS_TO_MS(5)); // TODO(doyle): Hack. Give enough time for the daemons to shut down
+  start_daemon(daemons, NUM_DAEMONS, daemon_params);
+  os_sleep_s(500);
+  LOKI_FOR_EACH(i, NUM_DAEMONS)
   {
     daemon_t *daemon = daemons + i;
-    daemon_service_node_status_t node_status = daemon_print_sn_status(daemon);
-
-    if (i == 2)
+    if (daemon_to_deregister == daemon)
     {
-      start_daemon(daemon + 2, 1, daemon_params);
-
+      daemon_service_node_status_t node_status = daemon_print_sn_status(daemon);
       EXPECT(result, node_status.registered == false, "Daemon %d should of been deregistered as we killed it early!", i);
     }
     else
     {
+      daemon_service_node_status_t node_status = daemon_print_sn_status(daemon);
       EXPECT(result, node_status.registered == true, "Daemon %d should still be online, pingining and alive!", i);
     }
   }
+#else
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+
+  int const NUM_DAEMONS         = 4;
+  daemon_t daemons[NUM_DAEMONS] = {};
+  loki_snode_key snode_keys[NUM_DAEMONS] = {};
+  daemon_t *daemon_to_deregister = daemons + (NUM_DAEMONS - 1);
+
+  create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params);
+  for (size_t i = 0; i < NUM_DAEMONS; ++i)
+    LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
+
+  LOKI_DEFER
+  {
+    for (size_t i = 0; i < NUM_DAEMONS; ++i)
+      daemon_exit(daemons + i);
+  };
+
+  // TODO(doyle): We can replace this with just checking the number of service nodes registered
+  for (size_t i = 0; i < NUM_DAEMONS; ++i)
+  {
+    daemon_t *daemon = daemons + i;
+
+    if (daemon == daemon_to_deregister)
+      continue;
+
+    for (;;)
+    {
+      daemon_service_node_status_t node_status = daemon_print_sn_status(daemon);
+      if (node_status.registered) break;
+      os_sleep_ms(1000);
+    }
+  }
+#endif
 
   return result;
 }

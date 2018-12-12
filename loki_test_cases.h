@@ -12,6 +12,8 @@ struct test_result
 
 void        print_test_results(test_result const *results);
 
+test_result deregistration__1_unresponsive_node();
+
 test_result prepare_registration__check_solo_auto_stake();
 test_result prepare_registration__check_100_percent_operator_cut_auto_stake();
 
@@ -29,7 +31,5 @@ test_result stake__disallow_to_non_registered_node();
 
 test_result transfer__check_fee_amount();
 test_result transfer__check_fee_amount_bulletproofs();
-
-test_result deregistration__1_unresponsive_node();
 
 #endif // LOKI_TEST_CASES_H

@@ -25,6 +25,7 @@ bool  os_file_exists    (char const *path, os_file_info *info = nullptr);
   #define NOMINMAX
   #include <Windows.h>
 #else
+  #include <sys/types.h>  // mkdir mode typedefs
   #include <sys/stat.h>   // unlink
   #include <sys/unistd.h> // rmdir
   #include <ftw.h>        // nftw
@@ -97,7 +98,8 @@ bool os_file_dir_make(char const *path)
   CreateDirectoryA(path, nullptr /*lpSecurityAttributes*/);
   return true;
 #else
-  return false;
+  bool result = (mkdir(path, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == 0);
+  return result;
 #endif
 }
 

@@ -25,19 +25,20 @@ struct daemon_status_t
 };
 
 // TODO(doyle): We should fill out this struct when print_sn_status is called. But, the way it's implemented there's not a nice way to read the output
-struct daemon_service_node_status_t
+struct daemon_snode_status
 {
   bool known_on_the_network;
   bool registered;
 };
 
-void                         daemon_exit                (daemon_t *daemon);
-bool                         daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
-uint64_t                     daemon_print_height        (daemon_t *daemon);
-bool                         daemon_print_sn_key        (daemon_t *daemon, loki_snode_key *key);
-daemon_service_node_status_t daemon_print_sn_status     (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
-uint64_t                     daemon_print_sr            (daemon_t *daemon, uint64_t height);
-daemon_status_t              daemon_status              (daemon_t *daemon);
+void                daemon_exit                (daemon_t *daemon);
+bool                daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
+uint64_t            daemon_print_height        (daemon_t *daemon);
+daemon_snode_status daemon_print_sn            (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
+bool                daemon_print_sn_key        (daemon_t *daemon, loki_snode_key *key);
+daemon_snode_status daemon_print_sn_status     (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
+uint64_t            daemon_print_sr            (daemon_t *daemon, uint64_t height);
+daemon_status_t     daemon_status              (daemon_t *daemon);
 
 #endif // LOKI_DAEMON_H
 
@@ -86,7 +87,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
 
   // Expected Format: register_service_node [auto] <owner cut> <address> <fraction> [<address> <fraction> [...]]]
   loki_scratch_buf output                     = {};
-  char const *register_service_node_start_ptr = nullptr;
+  char const *register_snode_start_ptr = nullptr;
   if (params->num_contributors == 1)
   {
     if (params->open_pool)
@@ -122,7 +123,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       // calculation as loki daemon we can be off by small amounts.
       // result &= str_match(owner_portions_output, owner_portions.c_str);
 
-      register_service_node_start_ptr = register_str;
+      register_snode_start_ptr = register_str;
     }
     else
     {
@@ -151,7 +152,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       result &= str_match(owner_addr_output,     owner->addr.buf.c_str);
       result &= str_match(owner_portions_output, "18446744073709551612");
 
-      register_service_node_start_ptr = register_str;
+      register_snode_start_ptr = register_str;
     }
   }
   else
@@ -182,8 +183,8 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
 
     itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, auto_stake_str); // Autostake
 
-    output                    = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y"); // Confirm
-    char const *register_str  = str_find(&output, "register_service_node");
+    output                   = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y"); // Confirm
+    char const *register_str = str_find(&output, "register_service_node");
     char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
     if (params->auto_stake)
@@ -217,12 +218,12 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       // result &= str_match(portions_output, contributor_portions.c_str);
     }
 
-    register_service_node_start_ptr = register_str;
+    register_snode_start_ptr = register_str;
   }
 
   if (result)
   {
-    char const *start = register_service_node_start_ptr;
+    char const *start = register_snode_start_ptr;
     char const *end   = start;
     while (end[0] && end[0] != '\n')
       ++end;
@@ -231,6 +232,24 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     registration_cmd->append("%.*s", len, start);
   }
 
+  return result;
+}
+
+daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
+{
+  daemon_snode_status result = {};
+  loki_buffer<256> cmd("print_sn %s", key->c_str);
+  loki_scratch_buf output    = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, cmd.c_str);
+
+  if (str_find(output.c_str, "No service node is currently known on the network"))
+    return result;
+
+  char const *registration_label        = str_find(output.c_str, "Service Node Registration State");
+  char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
+  int num_registered_snodes             = atoi(num_registered_snodes_str);
+
+  result.known_on_the_network = true;
+  result.registered           = (num_registered_snodes == 1);
   return result;
 }
 
@@ -247,21 +266,21 @@ bool daemon_print_sn_key(daemon_t *daemon, loki_snode_key *key)
   return true;
 }
 
-daemon_service_node_status_t daemon_print_sn_status(daemon_t *daemon)
+daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 {
 
-  daemon_service_node_status_t result = {};
-  loki_scratch_buf output             = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_sn_status");
+  daemon_snode_status result = {};
+  loki_scratch_buf output    = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_sn_status");
 
   if (str_find(output.c_str, "No service node is currently known on the network"))
     return result;
 
-  char const *registration_label               = str_find(output.c_str, "Service Node Registration State");
-  char const *num_registered_service_nodes_str = str_skip_to_next_digit(registration_label);
-  int num_registered_service_nodes             = atoi(num_registered_service_nodes_str);
+  char const *registration_label        = str_find(output.c_str, "Service Node Registration State");
+  char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
+  int num_registered_snodes             = atoi(num_registered_snodes_str);
 
   result.known_on_the_network = true;
-  result.registered           = (num_registered_service_nodes == 1);
+  result.registered           = (num_registered_snodes == 1);
   return result;
 
   // TODO(doyle): We should completely parse the output result, it looks like the below

@@ -13,13 +13,8 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
-#ifdef _WIN32
-char const LOKI_CMD_FMT[]        = "start bin/lokid.exe %s";
-char const LOKI_WALLET_CMD_FMT[] = "start bin/loki-wallet-cli.exe %s";
-#else
-char const LOKI_CMD_FMT[]        = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
-#endif
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash \"";
 
 struct state_t
 {
@@ -206,7 +201,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
     }
 
     itest_reset_shared_memory(&curr_daemon->shared_mem);
-    loki_scratch_buf cmd_buf(LOKI_CMD_FMT, arg_buf.data);
+    loki_scratch_buf cmd_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data);
 
     if (curr_daemon->id == 0)
     {
@@ -287,7 +282,7 @@ wallet_t create_wallet(loki_nettype nettype)
   arg_buf.append("--integration-test-shared-mem-stdout %s ", stdout_name.c_str);
   itest_reset_shared_memory(&result.shared_mem);
 
-  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
+  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data);
   os_launch_process(cmd_buf.data);
   os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init
   return result;
@@ -317,7 +312,7 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
   arg_buf.append("--integration-test-shared-mem-stdout %s ", wallet->shared_mem.stdout_mem.Path().c_str());
   itest_reset_shared_memory(&wallet->shared_mem);
 
-  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, arg_buf.data);
+  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data);
   wallet->proc_handle = os_launch_process(cmd_buf.data);
   os_sleep_ms(2000); // TODO(doyle): HACK to let enough time for the wallet to init, save and close.
 }
@@ -337,7 +332,7 @@ int main(int, char **)
   printf("\n");
 #if 0
   itest_reset_shared_memory();
-  // daemon_t daemon = create_and_start_daemon();
+  daemon_t daemon = create_and_start_daemon();
   std::string line;
   for (;;line.clear())
   {
@@ -381,7 +376,6 @@ int main(int, char **)
 
   RUN_TEST(transfer__check_fee_amount);
   RUN_TEST(transfer__check_fee_amount_bulletproofs);
-
 #else
 #endif
 

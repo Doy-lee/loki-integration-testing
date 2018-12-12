@@ -210,7 +210,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
 
     if (curr_daemon->id == 0)
     {
-      continue;
+      // continue;
     }
 
     curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
@@ -362,7 +362,9 @@ int main(int, char **)
   print_test_results(&results[results_index-1])
 
   // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
-#if 0
+#if 1
+  RUN_TEST(deregistration__1_unresponsive_node);
+
   RUN_TEST(prepare_registration__check_solo_auto_stake);
   RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
 
@@ -381,7 +383,6 @@ int main(int, char **)
   RUN_TEST(transfer__check_fee_amount_bulletproofs);
 
 #else
-  RUN_TEST(deregistration__1_unresponsive_node);
 #endif
 
   int num_tests_passed = 0;

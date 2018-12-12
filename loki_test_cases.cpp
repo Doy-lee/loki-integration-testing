@@ -804,15 +804,10 @@ test_result deregistration__1_unresponsive_node()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-#if 1
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-#if 0
   int const NUM_DAEMONS                  = LOKI_QUORUM_SIZE + 1;
-#else
-  int const NUM_DAEMONS                  = LOKI_QUORUM_SIZE;
-#endif
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
   daemon_t *daemon_to_deregister         = daemons + NUM_DAEMONS - 1;
@@ -886,7 +881,6 @@ test_result deregistration__1_unresponsive_node()
 
   os_sleep_ms(LOKI_SECONDS_TO_MS(5)); // TODO(doyle): Hack. Give enough time for the daemons to shut down
   start_daemon(daemons, NUM_DAEMONS, daemon_params);
-  os_sleep_s(500);
   LOKI_FOR_EACH(i, NUM_DAEMONS)
   {
     daemon_t *daemon = daemons + i;
@@ -901,41 +895,6 @@ test_result deregistration__1_unresponsive_node()
       EXPECT(result, node_status.registered == true, "Daemon %d should still be online, pingining and alive!", i);
     }
   }
-#else
-  start_daemon_params daemon_params = {};
-  daemon_params.load_latest_hardfork_versions();
-
-  int const NUM_DAEMONS         = 4;
-  daemon_t daemons[NUM_DAEMONS] = {};
-  loki_snode_key snode_keys[NUM_DAEMONS] = {};
-  daemon_t *daemon_to_deregister = daemons + (NUM_DAEMONS - 1);
-
-  create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params);
-  for (size_t i = 0; i < NUM_DAEMONS; ++i)
-    LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
-
-  LOKI_DEFER
-  {
-    for (size_t i = 0; i < NUM_DAEMONS; ++i)
-      daemon_exit(daemons + i);
-  };
-
-  // TODO(doyle): We can replace this with just checking the number of service nodes registered
-  for (size_t i = 0; i < NUM_DAEMONS; ++i)
-  {
-    daemon_t *daemon = daemons + i;
-
-    if (daemon == daemon_to_deregister)
-      continue;
-
-    for (;;)
-    {
-      daemon_service_node_status_t node_status = daemon_print_sn_status(daemon);
-      if (node_status.registered) break;
-      os_sleep_ms(1000);
-    }
-  }
-#endif
 
   return result;
 }

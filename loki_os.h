@@ -26,8 +26,10 @@ bool  os_file_exists    (char const *path, os_file_info *info = nullptr);
   #include <Windows.h>
 #else
   #include <sys/types.h>  // mkdir mode typedefs
-  #include <sys/stat.h>   // unlink
+  #include <sys/stat.h>   // unlink, semaphore
   #include <sys/unistd.h> // rmdir
+  #include <fcntl.h>      // semaphore
+  #include <semaphore.h>
   #include <ftw.h>        // nftw
 #endif
 
@@ -86,7 +88,7 @@ bool os_file_dir_delete(char const *path)
     return result;
   };
 
-  bool result = (nftw(path, file_delete_callback, 64, FTW_DEPTH | FTW_PHYS) == 0);
+  bool result = (nftw(path, file_delete_callback, 128, FTW_DEPTH | FTW_PHYS) == 0);
 #endif
   return result;
 }

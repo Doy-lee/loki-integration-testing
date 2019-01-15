@@ -9,6 +9,8 @@
 #include "external/shoom.h"
 #include "external/stb_sprintf.h"
 
+#include <semaphore.h>
+
 //
 // Primitives
 //
@@ -35,6 +37,7 @@ using usize = size_t;
 #define LOKI_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define LOKI_MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define LOKI_ABS(a) (((a) < 0) ? (-a) : (a))
+#define LOKI_MS_TO_NANOSECONDS(val) ((val) * 1000000ULL)
 #define LOKI_MS_TO_SECONDS(val) ((val) / 1000)
 #define LOKI_SECONDS_TO_MS(val) ((val) * 1000)
 #define LOKI_MINUTES_TO_S(val) ((val) * 60)
@@ -81,24 +84,61 @@ struct loki_buffer
 
 using loki_scratch_buf = loki_buffer<8192>;
 
+struct loki_str_lit
+{
+  char const *str;
+  int         len;
+  bool operator ==(loki_str_lit const &other) const
+  {
+    if (len != other.len) return false;
+    return (strcmp(str, other.str) == 0);
+  }
+};
+#define LOKI_STR_LIT(str) {str, LOKI_CHAR_COUNT(str)}
+
 //
 // Integration Test Primitives
 //
 
 struct in_out_shared_mem
 {
-  uint32_t   stdin_cmd_index;
   shoom::Shm stdin_mem;
-
-  uint32_t   stdout_cmd_index;
   shoom::Shm stdout_mem;
+
+  loki_buffer<128> stdin_semaphore_name;
+  loki_buffer<128> stdout_semaphore_name;
+  loki_buffer<128> stdin_ready_semaphore_name;
+  loki_buffer<128> stdout_ready_semaphore_name;
+  sem_t           *stdin_semaphore_handle;
+  sem_t           *stdout_semaphore_handle;
+  sem_t           *stdin_ready_semaphore_handle;
+  sem_t           *stdout_ready_semaphore_handle;
+
+  void clean_up();
 };
 
-void             itest_write_to_stdin_mem                 (in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
-loki_scratch_buf itest_blocking_read_from_stdout_mem_until(in_out_shared_mem *shared_mem, char const *find_str);
-loki_scratch_buf itest_read_from_stdout_mem               (in_out_shared_mem *shared_mem);
-loki_scratch_buf itest_write_to_stdin_mem_and_get_result  (in_out_shared_mem *shared_mem, char const *cmd, int cmd_len = -1);
-void             itest_reset_shared_memory                (in_out_shared_mem *shared_mem);
+struct itest_read_result
+{
+  int              matching_find_strs_index;
+  loki_scratch_buf buf;
+};
+
+struct itest_read_possible_value
+{
+  loki_str_lit literal;
+  bool         is_fail_msg;
+};
+
+const int ITEST_DEFAULT_TIMEOUT_MS = 100;
+const int ITEST_INFINITE_TIMEOUT   = -1;
+void              itest_write_to_stdin              (in_out_shared_mem *shared_mem, char const *cmd);
+itest_read_result itest_write_then_read_stdout      (in_out_shared_mem *shared_mem, char const *cmd);
+itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit                     possible_value);
+itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int find_strs_len);
+itest_read_result itest_read_stdout                 (in_out_shared_mem *shared_mem);
+itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, char const *find_str);
+void              itest_read_stdout_for_ms          (in_out_shared_mem *shared_mem, int time_ms);
+void              itest_reset_shared_memory         (in_out_shared_mem *shared_mem);
 
 //
 // Loki Blockchain Primitives

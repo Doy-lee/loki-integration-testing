@@ -80,7 +80,8 @@ test_result deregistration__1_unresponsive_node()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
+  // int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
+  int const NUM_DAEMONS                  = 2;
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
 
@@ -88,12 +89,15 @@ test_result deregistration__1_unresponsive_node()
   daemon_t       *deregister_daemons     = daemons + LOKI_QUORUM_SIZE;
   loki_snode_key *register_snode_keys    = snode_keys;
   loki_snode_key *deregister_snode_keys  = snode_keys + LOKI_QUORUM_SIZE;
-  int             num_register_daemons   = LOKI_QUORUM_SIZE;
-  int             num_deregister_daemons = LOKI_QUORUM_SIZE;
+  int             num_deregister_daemons = LOKI_QUORUM_SIZE / 2;
+  int             num_register_daemons   = NUM_DAEMONS - num_deregister_daemons;
 
   create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params);
+
   for (size_t i = 0; i < NUM_DAEMONS; ++i)
+  {
     LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
+  }
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = daemons + 0;
@@ -165,7 +169,7 @@ test_result deregistration__1_unresponsive_node()
   //
   {
     // TODO(doyle): There is abit of randomness here in that if by chance the 10 blocks we mine don't produce a quorum to let us vote off the dead node
-    uint64_t old_height = wallet_status(&wallet);
+    uint64_t old_height= wallet_status(&wallet);
     wallet_mine_atleast_n_blocks(&wallet, LOKI_REORG_SAFETY_BUFFER + 10, 50/*mining_duration_in_ms*/);
 
     os_sleep_s(30); // Wait for votes to propagate and deregister txs to be formed
@@ -217,14 +221,17 @@ test_result prepare_registration__check_solo_auto_stake()
 
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
 
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "prepare_registration");
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // Contribute entire stake?
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, wallet1); // Operator address
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // Auto restake?
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // Confirm information correct?
+  daemon_prepare_registration_params registration_params = {};
+  registration_params.num_contributors                   = 1;
+  registration_params.auto_stake                         = true;
+  registration_params.contributors[0].addr.set_normal_addr(wallet1);
+  registration_params.contributors[0].amount = 100; // TODO(doyle): Assumes staking requirement
+
+  loki_scratch_buf registration_cmd = {};
+  EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str      = str_find(&output, "register_service_node");
+  char const *register_str      = str_find(registration_cmd.c_str, "register_service_node");
   char const *prev              = register_str;
 
   char const *auto_stake        = str_skip_to_next_word(&prev);
@@ -232,12 +239,11 @@ test_result prepare_registration__check_solo_auto_stake()
   char const *wallet_addr       = str_skip_to_next_word(&prev);
   char const *addr1_portions    = str_skip_to_next_word(&prev);
 
-  EXPECT_STR(result, register_str,      "register_service_node", "Could not find expected str in: %s", output.c_str);
-  EXPECT_STR(result, auto_stake,        "auto",                  "Could not find expected str in: %s", output.c_str);
-  EXPECT_STR(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", output.c_str);
-  EXPECT_STR(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", output.c_str);
-  EXPECT_STR(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", output.c_str);
-
+  EXPECT_STR(result, register_str,      "register_service_node", "Could not find expected str in: %s", register_str);
+  EXPECT_STR(result, auto_stake,        "auto",                  "Could not find expected str in: %s", register_str);
+  EXPECT_STR(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", register_str);
+  EXPECT_STR(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", register_str);
+  EXPECT_STR(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", register_str);
   return result;
 }
 
@@ -252,21 +258,21 @@ test_result prepare_registration__check_100_percent_operator_cut_auto_stake()
   char const wallet1[] = "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD";
   char const wallet2[] = "T6TZgnpJ2uaC1cqS4E6M6u7QmGA79q2G19ToBHnqWHxMMDocNTiw2phg52XjkAmEZH9V5xQUsaR3cbcTnELE1vXP2YkhEqXad";
 
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "prepare_registration");
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "n"); // Contribute entire stake?
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "100%"); // Operator cut
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "50"); // How much loki to reserve?
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // Do you want to reserve portions of the stake for other contribs?
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "1"); // Number of additional contributors
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, wallet1); // Operator address
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "25"); // How much loki to reserve for contributor 1
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, wallet2); // Contrib 1 address
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // How much loki to reserve for contributor 1
-  itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // Autostake
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon.shared_mem, "y"); // Confirm
+  daemon_prepare_registration_params registration_params = {};
+  registration_params.num_contributors = 2;
+  registration_params.auto_stake       = true;
+  registration_params.open_pool        = true;
+  registration_params.owner_fee_percent = 100;
+  registration_params.contributors[0].addr.set_normal_addr(wallet1);
+  registration_params.contributors[0].amount = 50; // TODO(doyle): Assumes testnet staking requirement of 100
+  registration_params.contributors[1].addr.set_normal_addr(wallet2);
+  registration_params.contributors[1].amount = 25; // TODO(doyle): Assumes testnet staking requirement of 100
+
+  loki_scratch_buf registration_cmd = {};
+  EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str     = str_find(&output, "register_service_node");
+  char const *register_str     = str_find(registration_cmd.c_str, "register_service_node");
   char const *prev             = register_str;
 
   char const *auto_stake       = str_skip_to_next_word(&prev);
@@ -276,13 +282,13 @@ test_result prepare_registration__check_100_percent_operator_cut_auto_stake()
   char const *wallet2_addr     = str_skip_to_next_word(&prev);
   char const *wallet2_portions = str_skip_to_next_word(&prev);
 
-  EXPECT_STR(result, register_str,     "register_service_node", "Could not find expected str in: ", output.c_str);
-  EXPECT_STR(result, auto_stake,       "auto",                  "Could not find expected str in: ", output.c_str);
-  EXPECT_STR(result, operator_cut,     "18446744073709551612",  "Could not find expected str in: ", output.c_str);
-  EXPECT_STR(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", output.c_str);
-  EXPECT_STR(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", output.c_str); // exactly 50% of staking portions
-  EXPECT_STR(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", output.c_str);
-  EXPECT_STR(result, wallet2_portions, "4611686018427387903",   "Could not find expected str in: ", output.c_str); // exactly 25% of staking portions
+  EXPECT_STR(result, register_str,     "register_service_node", "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, auto_stake,       "auto",                  "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, operator_cut,     "18446744073709551612",  "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", register_str); // exactly 50% of staking portions
+  EXPECT_STR(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, wallet2_portions, "4611686018427387903",   "Could not find expected str in: ", register_str); // exactly 25% of staking portions
 
   return result;
 }
@@ -334,8 +340,8 @@ test_result register_service_node__allow_4_stakers()
 
   loki_scratch_buf registration_cmd = {};
   daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
-  EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node"); wallet_mine_atleast_n_blocks(owner, 1, 100 /*mining_duration*/);
-
+  EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+  wallet_mine_atleast_n_blocks(owner, 1, 100 /*mining_duration*/);
 
   // Each person stakes their part to the wallet
   for (int i = 1; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
@@ -385,8 +391,8 @@ test_result register_service_node__check_gets_payed_expires_and_returns_funds()
   // Fund the stakers wallet
   wallet_mine_atleast_n_blocks(&master_wallet, 100, LOKI_SECONDS_TO_MS(4));
   wallet_mine_until_unlocked_balance(&master_wallet, 150 * LOKI_ATOMIC_UNITS);
-  wallet_transfer(&master_wallet, staker1_addr.buf.c_str, 50 + 1);
-  wallet_transfer(&master_wallet, staker2_addr.buf.c_str, 50 + 1);
+  wallet_transfer(&master_wallet, staker1_addr.buf.c_str, 50 + 1, nullptr);
+  wallet_transfer(&master_wallet, staker2_addr.buf.c_str, 50 + 1, nullptr);
   wallet_mine_atleast_n_blocks(&master_wallet, 20, 500/*mining_duration_in_ms*/); // Get TX's onto the chain and let unlock it for the stakers
 
   wallet_refresh(&staker1);
@@ -456,7 +462,7 @@ test_result register_service_node__check_grace_period()
   {
     wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
     wallet_address(&wallet, 0, &my_addr);
-    wallet_sweep_all(&wallet, my_addr.buf.c_str);
+    wallet_sweep_all(&wallet, my_addr.buf.c_str, nullptr);
     wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, 100/*mining_duration_in_ms*/);
   }
 
@@ -730,7 +736,8 @@ test_result stake__disallow_from_subaddress()
   EXPECT(result, wallet_set_daemon(&operator_wallet, &daemon), "Could not set wallet with daemon at port 127.0.0.1:%d", daemon.rpc_port);
   wallet_mine_atleast_n_blocks(&operator_wallet, 100, LOKI_SECONDS_TO_MS(4));
 
-  loki_addr subaddr = wallet_address_new(&operator_wallet);
+  loki_addr subaddr = {};
+  wallet_address_new(&operator_wallet, &subaddr);
   {
     loki_addr check = {};
     wallet_address(&operator_wallet, 1, &check);
@@ -740,7 +747,7 @@ test_result stake__disallow_from_subaddress()
   loki_addr main_addr = {};
   wallet_address(&operator_wallet, 0, &main_addr);
 
-  wallet_transfer(&operator_wallet, &subaddr, 30);
+  wallet_transfer(&operator_wallet, &subaddr, 30, nullptr);
   wallet_address(&operator_wallet, 1);
   for (uint64_t subaddr_unlocked_bal = 0; subaddr_unlocked_bal < 30;)
   {
@@ -802,7 +809,8 @@ test_result stake__disallow_payment_id()
   wallet_register_service_node(&wallet, registration_cmd.c_str);
   wallet_mine_atleast_n_blocks(&wallet, 5, 400 /*mining_duration_in_ms*/);
 
-  loki_addr integrated_addr = wallet_integrated_address(&wallet);
+  loki_addr integrated_addr = {};
+  EXPECT(result, wallet_integrated_address(&wallet, &integrated_addr),             "Failed to generate integrated address");
   EXPECT(result, wallet_stake(&wallet, &snode_key, &integrated_addr, 10) == false, "You should not be able to stake with a payment ID address");
   return result;
 }
@@ -861,7 +869,8 @@ test_result transfer__check_fee_amount()
 
   // Transfer from wallet to dest
   {
-    loki_transaction tx = wallet_transfer(&src_wallet, dest_addr.buf.c_str, 50);
+    loki_transaction tx = {};
+    EXPECT(result, wallet_transfer(&src_wallet, dest_addr.buf.c_str, 50, &tx), "Failed to construct TX");
     wallet_mine_atleast_n_blocks(&src_wallet, 30);
 
     int64_t fee                = static_cast<int64_t>(tx.fee);
@@ -872,7 +881,8 @@ test_result transfer__check_fee_amount()
   // Transfer from dest to wallet
   {
     wallet_refresh(&dest_wallet);
-    loki_transaction tx = wallet_transfer(&dest_wallet, src_addr.buf.c_str, 45);
+    loki_transaction tx = {};
+    EXPECT(result, wallet_transfer(&dest_wallet, src_addr.buf.c_str, 45, &tx), "Failed to construct TX");
 
     int64_t fee   = static_cast<int64_t>(tx.fee);
     int64_t delta = LOKI_ABS(fee_estimate - fee);
@@ -913,7 +923,8 @@ test_result transfer__check_fee_amount_bulletproofs()
 
   // Transfer from wallet to dest
   {
-    loki_transaction tx = wallet_transfer(&src_wallet, dest_addr.buf.c_str, 50);
+    loki_transaction tx = {};
+    EXPECT(result, wallet_transfer(&src_wallet, dest_addr.buf.c_str, 50, &tx), "Failed to construct TX");
     wallet_mine_atleast_n_blocks(&src_wallet, 30);
 
     int64_t fee                = static_cast<int64_t>(tx.fee);
@@ -924,7 +935,8 @@ test_result transfer__check_fee_amount_bulletproofs()
   // Transfer from dest to wallet
   {
     wallet_refresh(&dest_wallet);
-    loki_transaction tx = wallet_transfer(&dest_wallet, src_addr.buf.c_str, 45);
+    loki_transaction tx = {};
+    EXPECT(result, wallet_transfer(&dest_wallet, src_addr.buf.c_str, 45, &tx), "Failed to construct TX");
 
     int64_t fee   = static_cast<int64_t>(tx.fee);
     int64_t delta = LOKI_ABS(fee_estimate - fee);

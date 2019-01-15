@@ -57,14 +57,14 @@ static uint64_t amount_to_staking_portions(uint64_t amount)
 
 void daemon_exit(daemon_t *daemon)
 {
-  itest_write_to_stdin_mem(&daemon->shared_mem, "exit");
-  os_sleep_ms(500);
+  itest_write_to_stdin(&daemon->shared_mem, "exit");
+  daemon->shared_mem.clean_up();
 }
 
 uint64_t daemon_print_height(daemon_t *daemon)
 {
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_height");
-  uint64_t result         = static_cast<uint64_t>(atoi(output.c_str));
+  itest_read_result output = itest_write_then_read_stdout(&daemon->shared_mem, "print_height");
+  uint64_t result = static_cast<uint64_t>(atoi(output.buf.c_str));
   return result;
 }
 
@@ -86,23 +86,23 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   // TODO(doyle): Handle fee properly
 
   // Expected Format: register_service_node [auto] <owner cut> <address> <fraction> [<address> <fraction> [...]]]
-  loki_scratch_buf output                     = {};
+  itest_read_result output                     = {};
   char const *register_snode_start_ptr = nullptr;
   if (params->num_contributors == 1)
   {
     if (params->open_pool)
     {
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "prepare_registration");
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "n");                  // Contribute entire stake?
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner_fee.c_str);
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner_amount.c_str);
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "n");                  // Reserve for other contributors?
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.buf.c_str);
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");                  // You will leave this open for other people. Is this okay?
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, auto_stake_str);     // Auto restake?
-      output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");         // Confirm?
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "prepare_registration", LOKI_STR_LIT("Will the operator contribute the entire stake?"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "n",                    LOKI_STR_LIT("What percentage of the total staking reward would the operator like to reserve as an operator fee"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, owner_fee.c_str,        LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, owner_amount.c_str,     LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "n",                    LOKI_STR_LIT("Enter the loki address for the operator"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str,  LOKI_STR_LIT("You will leave the remaining portion of"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "y",                    LOKI_STR_LIT("Do you wish to enable automatic re-staking"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str,         LOKI_STR_LIT("Do you confirm the information above is correct?"));
+      output = itest_write_then_read_stdout(&daemon->shared_mem, "y");
 
-      char const *register_str = str_find(&output, "register_service_node");
+      char const *register_str = str_find(&output.buf, "register_service_node");
       char const *ptr          = register_str;
       result                  &= (register_str != nullptr);
 
@@ -127,13 +127,13 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     }
     else
     {
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "prepare_registration");
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");                   // Contribute entire stake?
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.buf.c_str); // Operator address
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, auto_stake_str);      // Auto restake?
-      output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y"); // Confirm
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "prepare_registration", LOKI_STR_LIT("Will the operator contribute the entire stake?"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "y", LOKI_STR_LIT("Enter the loki address for the operator"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str, LOKI_STR_LIT("Do you wish to enable automatic re-staking"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str, LOKI_STR_LIT("Do you confirm the information above is correct?"));
+      output = itest_write_then_read_stdout(&daemon->shared_mem, "y");
 
-      char const *register_str = str_find(&output, "register_service_node");
+      char const *register_str = str_find(&output.buf, "register_service_node");
       char const *prev         = register_str;
       result                  &= (register_str != nullptr);
 
@@ -157,34 +157,33 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   }
   else
   {
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "prepare_registration");
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "n");                // Contribute entire stake?
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner_fee.c_str);    // Operator cut
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner_amount.c_str); // How much loki to reserve?
+    itest_write_then_read_stdout_until(&daemon->shared_mem, "prepare_registration", LOKI_STR_LIT("Will the operator contribute the entire stake?"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, "n", LOKI_STR_LIT("What percentage of the total staking reward would the operator like to reserve as an operator fee"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, owner_fee.c_str, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, owner_amount.c_str, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, "y", LOKI_STR_LIT("Number of additional contributors"));
 
     int num_extra_contribs             = params->num_contributors - 1;
     char const *num_extra_contribs_str = (num_extra_contribs == 1) ? "1" : (num_extra_contribs == 2) ? "2" : "3";
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y");                    // Do you want to reserve portions of the stake for other contribs?
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, num_extra_contribs_str); // Number of additional contributors
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, owner->addr.buf.c_str); // Operator address
+    itest_write_then_read_stdout_until(&daemon->shared_mem, num_extra_contribs_str, LOKI_STR_LIT("Enter the loki address for the operator"));
+
+    itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str, LOKI_STR_LIT("How much loki does contributor"));
 
     for (int i = 1; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, contributor_amount.c_str); // How much loki to reserve for contributor
-      output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, contributor->addr.buf.c_str);  // Contrib address
+      itest_write_then_read_stdout(&daemon->shared_mem, contributor_amount.c_str);
+      output = itest_write_then_read_stdout(&daemon->shared_mem, contributor->addr.buf.c_str);
     }
 
     if (params->open_pool)
-    {
-      itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y"); // You will leave remaining portion for open to contribution etc.
-    }
+      itest_write_then_read_stdout(&daemon->shared_mem, "y"); // You will leave remaining portion for open to contribution etc.
 
-    itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, auto_stake_str); // Autostake
+    itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str, LOKI_STR_LIT("Do you confirm the information above is correct?"));
 
-    output                   = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "y"); // Confirm
-    char const *register_str = str_find(&output, "register_service_node");
+    output                   = itest_write_then_read_stdout(&daemon->shared_mem, "y"); // Confirm
+    char const *register_str = str_find(&output.buf, "register_service_node");
     char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
     if (params->auto_stake)
@@ -197,7 +196,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     // TODO(doyle): Hack handle owner fees better
     if (params->owner_fee_percent == 100)
     {
-      result &= str_match(owner_fee_output,      "18446744073709551612");
+      result &= str_match(owner_fee_output, "18446744073709551612");
     }
     else
     {
@@ -239,12 +238,11 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
 {
   daemon_snode_status result = {};
   loki_buffer<256> cmd("print_sn %s", key->c_str);
-  loki_scratch_buf output    = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, cmd.c_str);
-
-  if (str_find(output.c_str, "No service node is currently known on the network"))
+  itest_read_result output = itest_write_then_read_stdout(&daemon->shared_mem, cmd.c_str);
+  if (str_find(output.buf.c_str, "No service node is currently known on the network"))
     return result;
 
-  char const *registration_label        = str_find(output.c_str, "Service Node Registration State");
+  char const *registration_label        = str_find(output.buf.c_str, "Service Node Registration State");
   char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
   int num_registered_snodes             = atoi(num_registered_snodes_str);
 
@@ -255,14 +253,16 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
 
 bool daemon_print_sn_key(daemon_t *daemon, loki_snode_key *key)
 {
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_sn_key");
-  if (!str_match(output.c_str, "Service Node Public Key"))
-    return false;
-
-  char const *key_ptr = str_find(output.c_str, ":");
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "print_sn_key", LOKI_STR_LIT("Service Node Public Key: "));
+  char const *key_ptr = str_find(output.buf.c_str, ":");
   key_ptr = str_skip_to_next_alphanum(key_ptr);
 
-  if (key) *key = key_ptr;
+  if (key)
+  {
+    key->clear();
+    key->append("%.*s", key->max(), key_ptr);
+  }
+
   return true;
 }
 
@@ -270,12 +270,12 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 {
 
   daemon_snode_status result = {};
-  loki_scratch_buf output    = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "print_sn_status");
+  itest_read_result output    = itest_write_then_read_stdout(&daemon->shared_mem, "print_sn_status");
 
-  if (str_find(output.c_str, "No service node is currently known on the network"))
+  if (str_find(output.buf.c_str, "No service node is currently known on the network"))
     return result;
 
-  char const *registration_label        = str_find(output.c_str, "Service Node Registration State");
+  char const *registration_label        = str_find(output.buf.c_str, "Service Node Registration State");
   char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
   int num_registered_snodes             = atoi(num_registered_snodes_str);
 
@@ -321,13 +321,9 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 uint64_t daemon_print_sr(daemon_t *daemon, uint64_t height)
 {
   loki_buffer<32> cmd("print_sr %zu", height);
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, cmd.c_str);
-  assert(str_match(output.c_str, "Staking Requirement: "));
-
-  char const *staking_requirement_str = str_find(output.c_str, ":");
-  assert(staking_requirement_str);
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Staking Requirement: "));
+  char const *staking_requirement_str = str_find(output.buf.c_str, ":");
   ++staking_requirement_str;
-
   uint64_t result = str_parse_loki_amount(staking_requirement_str);
   return result;
 }
@@ -338,12 +334,10 @@ daemon_status_t daemon_status(daemon_t *daemon)
   // Height: 67/67 (100.0%) on testnet, not mining, net hash 4 H/s, v9, up to date, 0(out)+0(in) connections, uptime 0d 0h 0m 0s
 
   daemon_status_t result  = {};
-  loki_scratch_buf output = itest_write_to_stdin_mem_and_get_result(&daemon->shared_mem, "status").c_str;
-
-  char const *ptr = output.c_str;
-  assert(str_match(ptr, "Height: "));
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "status", LOKI_STR_LIT("Height: "));
+  char const *ptr        = output.buf.c_str;
   char const *height_str = str_skip_to_next_digit_inplace(&ptr);
-  result.height = atoi(height_str);
+  result.height          = atoi(height_str);
 
   //                                        V <- ptr is here, ++ptr to move it past the comma
   ptr = (str_find(ptr, ","));   // <nettype>,

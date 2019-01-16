@@ -178,7 +178,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     }
 
     if (params->open_pool)
-      itest_write_then_read_stdout(&daemon->shared_mem, "y"); // You will leave remaining portion for open to contribution etc.
+      output = itest_write_then_read_stdout(&daemon->shared_mem, "y"); // You will leave remaining portion for open to contribution etc.
 
     itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str, LOKI_STR_LIT("Do you confirm the information above is correct?"));
 

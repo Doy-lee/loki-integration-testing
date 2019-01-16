@@ -66,11 +66,6 @@ struct loki_err_context
 };
 
 #define INITIALISE_TEST_CONTEXT(test_result_var) test_result_var.name = loki_buffer<512>(__func__); \
-if (os_file_exists("./output/daemon_0")) \
-{ \
-  LOKI_ASSERT(os_file_dir_delete("./output")); \
-  LOKI_ASSERT(os_file_dir_make("./output")); \
-}
 
 test_result deregistration__1_unresponsive_node()
 {
@@ -80,8 +75,8 @@ test_result deregistration__1_unresponsive_node()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  // int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
-  int const NUM_DAEMONS                  = 2;
+  int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
+  // int const NUM_DAEMONS                  = 2;
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
 

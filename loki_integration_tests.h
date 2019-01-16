@@ -82,7 +82,7 @@ struct loki_buffer
   int  len;
 };
 
-using loki_scratch_buf = loki_buffer<8192>;
+using loki_scratch_buf = loki_buffer<32768>;
 
 struct loki_str_lit
 {

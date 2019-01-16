@@ -59,7 +59,7 @@ void wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const p
   loki_buffer<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
 
-#if 0
+#if 1
   itest_write_then_read_stdout_until(&wallet->shared_mem, ask_password.c_str,   LOKI_STR_LIT("Wallet password: "));
   itest_write_then_read_stdout_until(&wallet->shared_mem, refresh_height.c_str, LOKI_STR_LIT("Wallet password: "));
 #else
@@ -230,7 +230,7 @@ uint64_t wallet_status(wallet_t *wallet)
   // Refreshed N/K, synced, daemon RPC vX.Y
   itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "status", LOKI_STR_LIT("Refreshed"));
   char const *ptr        = output.buf.c_str;
-  char const *height_str = str_skip_to_next_word(&ptr);
+  char const *height_str = str_skip_to_next_digit(ptr);
   uint64_t result        = static_cast<uint64_t>(atoi(height_str));
   return result;
 }

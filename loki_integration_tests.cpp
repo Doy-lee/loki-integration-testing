@@ -13,7 +13,7 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash \"";
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
 char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
 
 struct state_t
@@ -282,8 +282,8 @@ static in_out_shared_mem setup_shared_mem(char const *base_name, int id)
   in_out_shared_mem result = {};
   loki_buffer<128> stdin_name ("%s%d_stdin", base_name, id);
   loki_buffer<128> stdout_name("%s%d_stdout", base_name, id);
-  result.stdin_mem             = shoom::Shm(stdin_name.c_str, 8192);
-  result.stdout_mem            = shoom::Shm(stdout_name.c_str, 8192);
+  result.stdin_mem             = shoom::Shm(stdin_name.c_str, 32768);
+  result.stdout_mem            = shoom::Shm(stdout_name.c_str, 32768);
   result.stdin_semaphore_name  = loki_buffer<128>("/%s%d_stdin_semaphore", base_name, id);
   result.stdout_semaphore_name = loki_buffer<128>("/%s%d_stdout_semaphore", base_name, id);
   result.stdin_ready_semaphore_name  = loki_buffer<128>("/%s%d_stdin_ready_semaphore", base_name, id);
@@ -360,7 +360,7 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
 
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data);
   wallet->proc_handle = os_launch_process(cmd_buf.data);
-  itest_read_stdout_until(&wallet->shared_mem, "Background refresh thread started");
+  itest_read_stdout_until(&wallet->shared_mem, "Balance");
 }
 
 static void reset_semaphore(sem_t *semaphore)
@@ -433,25 +433,31 @@ int main(int, char **)
   print_test_results(&results[results_index-1])
 
   // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
+  if (os_file_exists("./output/"))
+  {
+    os_file_dir_delete("./output");
+    os_file_dir_make("./output");
+  }
+
 #if 1
-  // RUN_TEST(deregistration__1_unresponsive_node);
+  RUN_TEST(deregistration__1_unresponsive_node);
 
   RUN_TEST(prepare_registration__check_solo_auto_stake);
-  // RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
+  RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
 
-  // RUN_TEST(register_service_node__allow_4_stakers);
-  // RUN_TEST(register_service_node__check_gets_payed_expires_and_returns_funds);
-  // RUN_TEST(register_service_node__disallow_register_twice);
+  RUN_TEST(register_service_node__allow_4_stakers);
+  RUN_TEST(register_service_node__check_gets_payed_expires_and_returns_funds);
+  RUN_TEST(register_service_node__disallow_register_twice);
 
-  // RUN_TEST(stake__allow_incremental_staking_until_node_active);
-  // RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
-  // RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  // RUN_TEST(stake__disallow_from_subaddress);
-  // RUN_TEST(stake__disallow_payment_id);
-  // RUN_TEST(stake__disallow_to_non_registered_node);
+  RUN_TEST(stake__allow_incremental_staking_until_node_active);
+  RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
+  RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
+  RUN_TEST(stake__disallow_from_subaddress);
+  RUN_TEST(stake__disallow_payment_id);
+  RUN_TEST(stake__disallow_to_non_registered_node);
 
-  // RUN_TEST(transfer__check_fee_amount);
-  // RUN_TEST(transfer__check_fee_amount_bulletproofs);
+  RUN_TEST(transfer__check_fee_amount);
+  RUN_TEST(transfer__check_fee_amount_bulletproofs);
 #else
 #endif
 

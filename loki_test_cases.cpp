@@ -106,18 +106,14 @@ test_result deregistration__1_unresponsive_node()
       daemon_exit(daemons + i);
   };
 
-  //
   // Prepare blockchain, atleast 100 blocks so we have outputs to pick from
-  //
   int const FAKECHAIN_STAKING_REQUIREMENT = 100;
   {
     wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
     wallet_mine_until_unlocked_balance(&wallet, static_cast<int>(NUM_DAEMONS * FAKECHAIN_STAKING_REQUIREMENT)); // TODO(doyle): Assuming staking requirement of 100 fakechain
   }
 
-  //
   // Setup node registration params to come from our single wallet
-  //
   {
     daemon_prepare_registration_params register_params                    = {};
     register_params.contributors[register_params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
@@ -132,9 +128,7 @@ test_result deregistration__1_unresponsive_node()
     }
   }
 
-  //
   // Daemons to deregister should exit so that they don't ping when they get mined onto the chain
-  //
   os_sleep_s(2); // TODO(doyle): Hack: Sleep to give time for txs to propagate
   LOKI_FOR_EACH(i, num_deregister_daemons)
   {
@@ -142,9 +136,7 @@ test_result deregistration__1_unresponsive_node()
     daemon_exit(daemon);
   }
 
-  //
   // Mine the registration txs onto the chain and check they have been registered
-  //
   {
     wallet_mine_atleast_n_blocks(&wallet, 2, 50/*mining_duration_in_ms*/); // Get onto chain
     os_sleep_s(3); // Give some time for uptime proof to get sent out and propagated
@@ -157,11 +149,9 @@ test_result deregistration__1_unresponsive_node()
     }
   }
 
-  //
   // Mine atleast LOKI_REORG_SAFETY_BUFFER. Quorum voting can only start after
   // LOKI_REORG_SAFETY_BUFFER, but also make sure we don't mine too much that
   // the nodes don't naturally expire
-  //
   {
     // TODO(doyle): There is abit of randomness here in that if by chance the 10 blocks we mine don't produce a quorum to let us vote off the dead node
     uint64_t old_height= wallet_status(&wallet);
@@ -178,11 +168,9 @@ test_result deregistration__1_unresponsive_node()
         30 + LOKI_STAKING_EXCESS_BLOCKS);
   }
 
-  //
   // Check that there are some nodes that have been deregistered. Not
   // necessarily all of them because we may not have formed a quorum that was to
   // vote them off
-  //
   LOKI_FOR_EACH(i, num_register_daemons)
   {
     loki_snode_key *snode_key             = register_snode_keys + i;
@@ -831,6 +819,60 @@ test_result stake__disallow_to_non_registered_node()
   daemon_print_sn_key(&daemon, &snode_key);
   EXPECT(result, wallet_stake(&wallet, &snode_key, &my_addr, 15) == false, "You should not be able to stake to a node that is not registered yet!");
 
+  return result;
+}
+
+test_result stake__disallow_request_stake_unlock_twice()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  loki_snode_key snode_key = {};
+  daemon_t daemon          = {};
+  wallet_t wallet          = {};
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
+
+  // Setup wallet and daemon
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.add_hardfork(7, 0);
+    daemon_params.add_hardfork(8, 1);
+    daemon_params.add_hardfork(9, 2);
+    daemon_params.add_hardfork(10, 3);
+    daemon_params.add_hardfork(11, 4);
+    daemon = create_and_start_daemon(daemon_params);
+    LOKI_ASSERT(daemon_print_sn_key(&daemon, &snode_key));
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+  }
+
+  // Prepare blockchain, atleast 100 blocks so we have outputs to pick from
+  int const FAKECHAIN_STAKING_REQUIREMENT = 100;
+  {
+    wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+    wallet_mine_until_unlocked_balance(&wallet, FAKECHAIN_STAKING_REQUIREMENT);
+  }
+
+  // Prepare registration, submit register and mine into the chain
+  {
+    daemon_prepare_registration_params params           = {};
+    params.contributors[params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
+    wallet_address(&wallet, 0, &params.contributors[params.num_contributors++].addr);
+
+    loki_scratch_buf cmd = {};
+    EXPECT(result, daemon_prepare_registration (&daemon, &params, &cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, cmd.c_str),     "Failed to register service node");
+    wallet_mine_atleast_n_blocks(&wallet, 10, 50/*mining_duration_in_ms*/); // Mine and become a service node
+  }
+
+  daemon_snode_status snode_status = daemon_print_sn_status(&daemon);
+  EXPECT(result, snode_status.registered, "Node submitted registration but did not become a service node");
+
+  EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key), "Failed to request our first stake unlock");
+  EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key) == false, "We've already requested our stake to unlock, the second time should fail");
   return result;
 }
 

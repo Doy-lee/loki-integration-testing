@@ -41,6 +41,7 @@ void                wallet_mine_for_n_milliseconds     (wallet_t *wallet, int mi
 uint64_t            wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
 
 // TODO(doyle): This should return the transaction
+bool                wallet_request_stake_unlock        (wallet_t *wallet, loki_snode_key const *snode_key);
 bool                wallet_register_service_node       (wallet_t *wallet, char const *registration_cmd);
 
 #endif // LOKI_WALLET_H
@@ -364,6 +365,25 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
   }
 
   return unlocked_balance;
+}
+
+bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_key)
+{
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Failed to generate signature to sign request. The key image: "), true},
+    {LOKI_STR_LIT("Failed to parse hex representation of key image"), true},
+    {LOKI_STR_LIT("unable to get network blockchain height from daemon: "), true},
+    {LOKI_STR_LIT("No contributions recognised by this wallet in service node: "), true},
+    {LOKI_STR_LIT("Unexpected 0 contributions in service node for this wallet "), true},
+    {LOKI_STR_LIT("No service node is known for: "), true},
+    {LOKI_STR_LIT("has already been requested to be unlocked, unlocking at height: "), true},
+    {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
+  };
+
+  loki_buffer<256> cmd("request_stake_unlock %s", snode_key->c_str);
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  return possible_values[output.matching_find_strs_index].is_fail_msg;
 }
 
 bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd)

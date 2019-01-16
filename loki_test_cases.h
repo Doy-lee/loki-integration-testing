@@ -28,6 +28,7 @@ test_result stake__disallow_insufficient_stake_w_not_reserved_contributor();
 test_result stake__disallow_from_subaddress();
 test_result stake__disallow_payment_id();
 test_result stake__disallow_to_non_registered_node();
+test_result stake__disallow_request_stake_unlock_twice();
 
 test_result transfer__check_fee_amount();
 test_result transfer__check_fee_amount_bulletproofs();

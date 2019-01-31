@@ -440,10 +440,10 @@ int main(int, char **)
   }
 
 #if 1
-  RUN_TEST(deregistration__1_unresponsive_node);
+  // RUN_TEST(deregistration__1_unresponsive_node);
 
-  RUN_TEST(prepare_registration__check_solo_auto_stake);
-  RUN_TEST(prepare_registration__check_100_percent_operator_cut_auto_stake);
+  RUN_TEST(prepare_registration__check_solo_stake);
+  RUN_TEST(prepare_registration__check_100_percent_operator_cut_stake);
 
   RUN_TEST(register_service_node__allow_4_stakers);
   RUN_TEST(register_service_node__check_gets_payed_expires_and_returns_funds);

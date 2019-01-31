@@ -10,8 +10,6 @@
 struct daemon_prepare_registration_params
 {
   static daemon_prepare_registration_params solo_staker(wallet_t wallet);
-
-  bool             auto_stake;
   bool             open_pool;
   int              owner_fee_percent;
   int              num_contributors;
@@ -76,16 +74,14 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   if (params->open_pool)
     assert(params->num_contributors != 4);
 
-  char const *auto_stake_str  = (params->auto_stake) ? "y" : "n";
   loki_contributor const *owner = params->contributors + 0;
-
   loki_buffer<32> owner_portions("%zu", amount_to_staking_portions(owner->amount));
   loki_buffer<32> owner_fee     ("%d",  params->owner_fee_percent);
   loki_buffer<32> owner_amount  ("%zu", owner->amount);
 
   // TODO(doyle): Handle fee properly
 
-  // Expected Format: register_service_node [auto] <owner cut> <address> <fraction> [<address> <fraction> [...]]]
+  // Expected Format: register_service_node <owner cut> <address> <fraction> [<address> <fraction> [...]]]
   itest_read_result output                     = {};
   char const *register_snode_start_ptr = nullptr;
   if (params->num_contributors == 1)
@@ -98,19 +94,11 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       itest_write_then_read_stdout_until(&daemon->shared_mem, owner_amount.c_str,     LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"));
       itest_write_then_read_stdout_until(&daemon->shared_mem, "n",                    LOKI_STR_LIT("Enter the loki address for the operator"));
       itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str,  LOKI_STR_LIT("You will leave the remaining portion of"));
-      itest_write_then_read_stdout_until(&daemon->shared_mem, "y",                    LOKI_STR_LIT("Do you wish to enable automatic re-staking"));
-      itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str,         LOKI_STR_LIT("Do you confirm the information above is correct?"));
       output = itest_write_then_read_stdout(&daemon->shared_mem, "y");
 
       char const *register_str = str_find(&output.buf, "register_service_node");
       char const *ptr          = register_str;
       result                  &= (register_str != nullptr);
-
-      if (params->auto_stake)
-      {
-        char const *auto_stake_output = str_skip_to_next_word(&ptr);
-        result &= str_match(auto_stake_output, "auto");
-      }
 
       char const *owner_fee_output      = str_skip_to_next_word(&ptr);
       char const *owner_addr_output     = str_skip_to_next_word(&ptr);
@@ -128,20 +116,13 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     else
     {
       itest_write_then_read_stdout_until(&daemon->shared_mem, "prepare_registration", LOKI_STR_LIT("Will the operator contribute the entire stake?"));
-      itest_write_then_read_stdout_until(&daemon->shared_mem, "y", LOKI_STR_LIT("Enter the loki address for the operator"));
-      itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str, LOKI_STR_LIT("Do you wish to enable automatic re-staking"));
-      itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str, LOKI_STR_LIT("Do you confirm the information above is correct?"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, "y", LOKI_STR_LIT("Enter the loki address for the solo staker"));
+      itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str, LOKI_STR_LIT("Do you confirm the information above is correct?"));
       output = itest_write_then_read_stdout(&daemon->shared_mem, "y");
 
       char const *register_str = str_find(&output.buf, "register_service_node");
       char const *prev         = register_str;
       result                  &= (register_str != nullptr);
-
-      if (params->auto_stake)
-      {
-        char const *auto_stake = str_skip_to_next_word(&prev);
-        result &= str_match(auto_stake, "auto");
-      }
 
       char const *owner_fee_output      = str_skip_to_next_word(&prev);
       char const *owner_addr_output     = str_skip_to_next_word(&prev);
@@ -158,39 +139,32 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   else
   {
     itest_write_then_read_stdout_until(&daemon->shared_mem, "prepare_registration", LOKI_STR_LIT("Will the operator contribute the entire stake?"));
-    itest_write_then_read_stdout_until(&daemon->shared_mem, "n", LOKI_STR_LIT("What percentage of the total staking reward would the operator like to reserve as an operator fee"));
-    itest_write_then_read_stdout_until(&daemon->shared_mem, owner_fee.c_str, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"));
-    itest_write_then_read_stdout_until(&daemon->shared_mem, owner_amount.c_str, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"));
-    itest_write_then_read_stdout_until(&daemon->shared_mem, "y", LOKI_STR_LIT("Number of additional contributors"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, "n",                    LOKI_STR_LIT("What percentage of the total staking reward would the operator like to reserve as an operator fee"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, owner_fee.c_str,        LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, "y",                    LOKI_STR_LIT("Number of additional contributors"));
 
     int num_extra_contribs             = params->num_contributors - 1;
     char const *num_extra_contribs_str = (num_extra_contribs == 1) ? "1" : (num_extra_contribs == 2) ? "2" : "3";
-    itest_write_then_read_stdout_until(&daemon->shared_mem, num_extra_contribs_str, LOKI_STR_LIT("Enter the loki address for the operator"));
 
-    itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str, LOKI_STR_LIT("How much loki does contributor"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, num_extra_contribs_str,  LOKI_STR_LIT("Enter the loki address for the operator"));
+    itest_write_then_read_stdout_until(&daemon->shared_mem, owner->addr.buf.c_str,   LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"));
 
+    itest_write_then_read_stdout_until(&daemon->shared_mem, owner_amount.c_str,      LOKI_STR_LIT("Enter the loki address for contributor"));
     for (int i = 1; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
-      itest_write_then_read_stdout(&daemon->shared_mem, contributor_amount.c_str);
       output = itest_write_then_read_stdout(&daemon->shared_mem, contributor->addr.buf.c_str);
+      itest_write_then_read_stdout(&daemon->shared_mem, contributor_amount.c_str);
     }
 
     if (params->open_pool)
       output = itest_write_then_read_stdout(&daemon->shared_mem, "y"); // You will leave remaining portion for open to contribution etc.
 
-    itest_write_then_read_stdout_until(&daemon->shared_mem, auto_stake_str, LOKI_STR_LIT("Do you confirm the information above is correct?"));
-
     output                   = itest_write_then_read_stdout(&daemon->shared_mem, "y"); // Confirm
     char const *register_str = str_find(&output.buf, "register_service_node");
     char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
-    if (params->auto_stake)
-    {
-      char const *auto_stake_output = str_skip_to_next_word(&ptr);
-      result &= str_match(auto_stake_output, "auto");
-    }
 
     char const *owner_fee_output  = str_skip_to_next_word(&ptr);
     // TODO(doyle): Hack handle owner fees better

@@ -14,8 +14,8 @@ void        print_test_results(test_result const *results);
 
 test_result deregistration__1_unresponsive_node();
 
-test_result prepare_registration__check_solo_auto_stake();
-test_result prepare_registration__check_100_percent_operator_cut_auto_stake();
+test_result prepare_registration__check_solo_stake();
+test_result prepare_registration__check_100_percent_operator_cut_stake();
 
 test_result register_service_node__allow_4_stakers();
 test_result register_service_node__check_gets_payed_expires_and_returns_funds();

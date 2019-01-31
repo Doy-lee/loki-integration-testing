@@ -194,7 +194,7 @@ test_result deregistration__1_unresponsive_node()
   return result;
 }
 
-test_result prepare_registration__check_solo_auto_stake()
+test_result prepare_registration__check_solo_stake()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -206,31 +206,28 @@ test_result prepare_registration__check_solo_auto_stake()
 
   daemon_prepare_registration_params registration_params = {};
   registration_params.num_contributors                   = 1;
-  registration_params.auto_stake                         = true;
   registration_params.contributors[0].addr.set_normal_addr(wallet1);
   registration_params.contributors[0].amount = 100; // TODO(doyle): Assumes staking requirement
 
   loki_scratch_buf registration_cmd = {};
   EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
 
-  // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
+  // Expected Format: register_service_node <operator cut> <address> <fraction> [<address> <fraction> [...]]]
   char const *register_str      = str_find(registration_cmd.c_str, "register_service_node");
   char const *prev              = register_str;
 
-  char const *auto_stake        = str_skip_to_next_word(&prev);
   char const *operator_portions = str_skip_to_next_word(&prev);
   char const *wallet_addr       = str_skip_to_next_word(&prev);
   char const *addr1_portions    = str_skip_to_next_word(&prev);
 
   EXPECT_STR(result, register_str,      "register_service_node", "Could not find expected str in: %s", register_str);
-  EXPECT_STR(result, auto_stake,        "auto",                  "Could not find expected str in: %s", register_str);
   EXPECT_STR(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", register_str);
   EXPECT_STR(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", register_str);
   EXPECT_STR(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", register_str);
   return result;
 }
 
-test_result prepare_registration__check_100_percent_operator_cut_auto_stake()
+test_result prepare_registration__check_100_percent_operator_cut_stake()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -243,7 +240,6 @@ test_result prepare_registration__check_100_percent_operator_cut_auto_stake()
 
   daemon_prepare_registration_params registration_params = {};
   registration_params.num_contributors = 2;
-  registration_params.auto_stake       = true;
   registration_params.open_pool        = true;
   registration_params.owner_fee_percent = 100;
   registration_params.contributors[0].addr.set_normal_addr(wallet1);
@@ -258,7 +254,6 @@ test_result prepare_registration__check_100_percent_operator_cut_auto_stake()
   char const *register_str     = str_find(registration_cmd.c_str, "register_service_node");
   char const *prev             = register_str;
 
-  char const *auto_stake       = str_skip_to_next_word(&prev);
   char const *operator_cut     = str_skip_to_next_word(&prev);
   char const *wallet1_addr     = str_skip_to_next_word(&prev);
   char const *wallet1_portions = str_skip_to_next_word(&prev);
@@ -266,7 +261,6 @@ test_result prepare_registration__check_100_percent_operator_cut_auto_stake()
   char const *wallet2_portions = str_skip_to_next_word(&prev);
 
   EXPECT_STR(result, register_str,     "register_service_node", "Could not find expected str in: ", register_str);
-  EXPECT_STR(result, auto_stake,       "auto",                  "Could not find expected str in: ", register_str);
   EXPECT_STR(result, operator_cut,     "18446744073709551612",  "Could not find expected str in: ", register_str);
   EXPECT_STR(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", register_str);
   EXPECT_STR(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", register_str); // exactly 50% of staking portions

@@ -13,8 +13,13 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
+#if 1
 char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
 char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
+#else
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash\"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
+#endif
 
 struct state_t
 {
@@ -169,6 +174,12 @@ itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, char co
     itest_read_result result = itest_read_stdout(shared_mem);
     if (str_find(result.buf.c_str, find_str)) return result;
   }
+}
+
+void itest_read_until_then_write_stdin(in_out_shared_mem *shared_mem, loki_str_lit find_str, char const *cmd)
+{
+  itest_read_stdout_until(shared_mem, find_str.str);
+  itest_write_to_stdin(shared_mem, cmd);
 }
 
 void itest_read_stdout_for_ms(in_out_shared_mem *shared_mem, int time_ms)
@@ -358,9 +369,11 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
   arg_buf.append("--integration-test-shared-mem-name %s ", name.c_str);
   itest_reset_shared_memory(&wallet->shared_mem);
 
+#if 1
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data);
   wallet->proc_handle = os_launch_process(cmd_buf.data);
   itest_read_stdout_until(&wallet->shared_mem, "Balance");
+#endif
 }
 
 static void reset_semaphore(sem_t *semaphore)
@@ -452,8 +465,6 @@ int main(int, char **)
   RUN_TEST(stake__allow_incremental_staking_until_node_active);
   RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
   RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  RUN_TEST(stake__disallow_from_subaddress);
-  RUN_TEST(stake__disallow_payment_id);
   RUN_TEST(stake__disallow_to_non_registered_node);
 
   RUN_TEST(transfer__check_fee_amount);

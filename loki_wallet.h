@@ -27,7 +27,7 @@ bool                wallet_integrated_address          (wallet_t *wallet, loki_a
 bool                wallet_payment_id                  (wallet_t *wallet, loki_payment_id64 *id);
 bool                wallet_refresh                     (wallet_t *wallet);
 bool                wallet_set_daemon                  (wallet_t *wallet, struct daemon_t const *daemon);
-bool                wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id = nullptr);
+bool                wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, uint64_t amount, loki_transaction_id *tx_id = nullptr);
 bool                wallet_status                      (wallet_t *wallet, uint64_t *height); // height: The current height the wallet is synced at
 
 // TODO(doyle): Need to support integrated address
@@ -35,10 +35,10 @@ bool                wallet_sweep_all                   (wallet_t *wallet, char  
 bool                wallet_transfer                    (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
 bool                wallet_transfer                    (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
 
-void                wallet_mine_atleast_n_blocks       (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 500);
+void                wallet_mine_atleast_n_blocks       (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 1000);
 inline void         wallet_mine_unlock_time_blocks     (wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
 void                wallet_mine_for_n_milliseconds     (wallet_t *wallet, int milliseconds);
-uint64_t            wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 500); // return: The actual unlocked balance, can vary by abit.
+uint64_t            wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 1000); // return: The actual unlocked balance, can vary by abit.
 
 // TODO(doyle): This should return the transaction
 bool                wallet_request_stake_unlock        (wallet_t *wallet, loki_snode_key const *snode_key);
@@ -59,13 +59,20 @@ void wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const p
 { 
   loki_buffer<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
+  itest_write_then_read_stdout_until(&wallet->shared_mem, refresh_height.c_str, LOKI_STR_LIT("Wallet password"));
 
+  
+#if 0 // TODO(doyle): Hack. Can't get this to work reliably, right not the binaries are built to default to these settings
 #if 1
   itest_write_then_read_stdout_until(&wallet->shared_mem, ask_password.c_str,   LOKI_STR_LIT("Wallet password: "));
-  itest_write_then_read_stdout_until(&wallet->shared_mem, refresh_height.c_str, LOKI_STR_LIT("Wallet password: "));
+  // TODO(doyle): Hack, theres some sort of race condition here, it gets blocked waiting
+  os_sleep_ms(128);
+  itest_read_stdout(&wallet->shared_mem);
+
 #else
   itest_write_then_read_stdout(&wallet->shared_mem, ask_password.c_str);
   itest_write_then_read_stdout(&wallet->shared_mem, refresh_height.c_str);
+#endif
 #endif
 }
 
@@ -190,20 +197,27 @@ bool wallet_set_daemon(wallet_t *wallet, daemon_t const *daemon)
   return true;
 }
 
-bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, loki_addr const *contributor_addr, uint64_t amount, loki_transaction_id *tx_id)
+bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, uint64_t amount, loki_transaction_id *tx_id)
 {
-  loki_buffer<512> cmd("stake %s %s %zu", service_node_key->c_str, contributor_addr->buf.c_str, amount);
+  loki_buffer<512> cmd("stake %s %zu", service_node_key->c_str, amount);
 
   // Staking 25.000000000 for 1460 blocks a total fee of 0.076725600.  Is this okay?  (Y/Yes/N/No):
   {
     itest_read_possible_value const possible_values[] =
     {
-      {LOKI_STR_LIT("Error: Service nodes do not support rewards to subaddresses, cannot stake for address: "), true},
-      {LOKI_STR_LIT("Error: Could not find service node in service node list, please make sure it is registered first"), true},
-      {LOKI_STR_LIT("Error: You may not contribute any more to this service node"), true},
-      {LOKI_STR_LIT("Error: Not enough money in unlocked balance"), true},
-      {LOKI_STR_LIT("Error: You must contribute atleast"), true},
-      {LOKI_STR_LIT("Error: Do not use payment ids for staking"), true},
+      {LOKI_STR_LIT("Exception thrown, staking process could not be completed"), true},
+      {LOKI_STR_LIT("Payment IDs cannot be used in a staking transaction"), true},
+      {LOKI_STR_LIT("Subaddresses cannot be used in a staking transaction"), true},
+      {LOKI_STR_LIT("The specified address must be owned by this wallet and be the primary address of the wallet"), true},
+      {LOKI_STR_LIT("Failed to query daemon for service node list"), true},
+      {LOKI_STR_LIT("Could not find service node in service node list, please make sure it is registered first."), true},
+      {LOKI_STR_LIT("Could not query the current network version, try later"), true},
+      {LOKI_STR_LIT("Could not query the current network block height, try later"), true},
+      {LOKI_STR_LIT("The service node cannot receive any more Loki from this wallet"), true},
+      {LOKI_STR_LIT("The service node already has the maximum number of participants and this wallet is not one of them"), true},
+      {LOKI_STR_LIT("You must contribute at least"), true},
+      {LOKI_STR_LIT("Constructed too many transations, please sweep_all first"), true},
+      {LOKI_STR_LIT("Error: No outputs found, or daemon is not ready"), true},
       {LOKI_STR_LIT("Is this okay?"), false},
     };
 
@@ -338,6 +352,7 @@ void wallet_mine_atleast_n_blocks(wallet_t *wallet, int num_blocks, int mining_d
   for (uint64_t start_height = wallet_status(wallet);;)
   {
     wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
+    os_sleep_ms(500); // TODO(doyle): Hack
     wallet_refresh(wallet);
 
     uint64_t curr_height = wallet_status(wallet);
@@ -349,7 +364,13 @@ void wallet_mine_atleast_n_blocks(wallet_t *wallet, int num_blocks, int mining_d
 
 void wallet_mine_for_n_milliseconds(wallet_t *wallet, int milliseconds)
 {
-  itest_write_to_stdin(&wallet->shared_mem, "start_mining");
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("mining has NOT been started"), true},
+    {LOKI_STR_LIT("Mining started in daemon"), false},
+  };
+
+  itest_write_then_read_stdout_until(&wallet->shared_mem, "start_mining", possible_values, LOKI_ARRAY_COUNT(possible_values));
   os_sleep_ms(milliseconds);
   itest_write_then_read_stdout_until(&wallet->shared_mem, "stop_mining", LOKI_STR_LIT("Mining stopped in daemon"));
 }
@@ -360,6 +381,7 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
   for (;unlocked_balance < desired_unlocked_balance;)
   {
     wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
+    os_sleep_ms(250);
     wallet_refresh                (wallet);
     wallet_balance                (wallet, &unlocked_balance);
   }

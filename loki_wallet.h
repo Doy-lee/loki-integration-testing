@@ -183,6 +183,7 @@ bool wallet_refresh(wallet_t *wallet)
   itest_read_possible_value const possible_values[] =
   {
     {LOKI_STR_LIT("Error: refresh failed"), true},
+    {LOKI_STR_LIT("Error: refresh failed unexpected error: proxy exception in refresh thread"), true},
     {LOKI_STR_LIT("Balance"),               false},
   };
 
@@ -252,10 +253,10 @@ uint64_t wallet_status(wallet_t *wallet)
 
 bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 {
-  loki_buffer<128> cmd("sweep_all %s", dest);
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, LOKI_STR_LIT("No payment id is included with this transaction. Is this okay?"));
   // Example: Sweeping 30298.277954908 in 5 transactions for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("Is this okay?"));
+  loki_buffer<128> cmd("sweep_all %s", dest);
+  itest_write_to_stdin(&wallet->shared_mem, cmd.c_str);
+  itest_read_result output = itest_read_stdout_until(&wallet->shared_mem, "Sweeping");
 
   // Sending amount
   char const *amount_label = str_find(output.buf.c_str, "Sweeping ");
@@ -266,7 +267,7 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   num_transactions_str             = str_skip_to_next_digit(num_transactions_str);
   int num_transactions             = (int)atoi(num_transactions_str);
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command?"));
+  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
 
   // Example: The below is repeated N times for num transactions
   // Transaction successfully submitted, transaction <cf6311bc0feb44a85e378d75f5a5e42e676ae6257a48992d0b5773310bf9179d>
@@ -274,7 +275,7 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   // [...]
   LOKI_FOR_EACH(i, (num_transactions - 1))
   {
-    output = itest_read_stdout_until(&wallet->shared_mem, "You can check its status by using the `show_transfers` command?");
+    output = itest_read_stdout_until(&wallet->shared_mem, "You can check its status by using the `show_transfers` command");
   }
 
   if (tx)
@@ -370,7 +371,7 @@ void wallet_mine_for_n_milliseconds(wallet_t *wallet, int milliseconds)
   };
 
   itest_write_then_read_stdout_until(&wallet->shared_mem, "start_mining", possible_values, LOKI_ARRAY_COUNT(possible_values));
-  os_sleep_ms(LOKI_MAX(1000, milliseconds));
+  os_sleep_ms(milliseconds);
   itest_write_then_read_stdout_until(&wallet->shared_mem, "stop_mining", LOKI_STR_LIT("Mining stopped in daemon"));
 }
 

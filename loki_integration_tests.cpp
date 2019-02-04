@@ -52,6 +52,12 @@ void in_out_shared_mem::clean_up()
   sem_unlink(this->stdout_ready_semaphore_name.c_str);
 }
 
+void start_daemon_params::add_sequential_hardforks_until_version(int version)
+{
+  for (int height = 0, curr_version = 7; curr_version <= version; ++curr_version, ++height)
+    add_hardfork(curr_version, height);
+}
+
 void start_daemon_params::add_hardfork(int version, int height)
 {
   LOKI_ASSERT_MSG(this->num_hardforks < (int)LOKI_ARRAY_COUNT(this->hardforks), "Out of space in hardfork storage, bump up the hardfork array size, current size: %zu", LOKI_ARRAY_COUNT(this->hardforks));
@@ -64,7 +70,6 @@ void start_daemon_params::add_hardfork(int version, int height)
   }
 
   this->hardforks[this->num_hardforks++] = {version, height};
-
 
   // TODO(doyle): This sucks. But, right now overriding hard forks in the daemon
   // means we need to go into fakenet mode. There's a refresh error I haven't
@@ -79,6 +84,7 @@ void start_daemon_params::load_latest_hardfork_versions()
   this->add_hardfork(8, 1);
   this->add_hardfork(9, 2);
   this->add_hardfork(10, 3);
+  this->add_hardfork(11, 4);
 }
 
 void itest_write_to_stdin(in_out_shared_mem *shared_mem, char const *cmd)
@@ -111,20 +117,8 @@ itest_read_result itest_write_then_read_stdout(in_out_shared_mem *shared_mem, ch
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int possible_values_len)
 {
   itest_write_to_stdin(shared_mem, cmd);
-  for (;;)
-  {
-    itest_read_result result = itest_read_stdout(shared_mem);
-
-    LOKI_FOR_EACH(i, possible_values_len)
-    {
-      char const *check = result.buf.c_str;
-      if (str_find(check, possible_values[i].literal.str))
-      {
-        result.matching_find_strs_index = i;
-        return result;
-      }
-    }
-  }
+  itest_read_result result = itest_read_stdout_until(shared_mem, possible_values, possible_values_len);
+  return result;
 }
 
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit find_str)
@@ -169,10 +163,26 @@ itest_read_result itest_read_stdout(in_out_shared_mem *shared_mem)
 
 itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, char const *find_str)
 {
+  itest_read_possible_value possible_values[] = { {find_str, false}, };
+  itest_read_result result = itest_read_stdout_until(shared_mem, possible_values, 1);
+  return result;
+}
+
+itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len)
+{
   for (;;)
   {
     itest_read_result result = itest_read_stdout(shared_mem);
-    if (str_find(result.buf.c_str, find_str)) return result;
+
+    LOKI_FOR_EACH(i, possible_values_len)
+    {
+      char const *check = result.buf.c_str;
+      if (str_find(check, possible_values[i].literal.str))
+      {
+        result.matching_find_strs_index = i;
+        return result;
+      }
+    }
   }
 }
 
@@ -261,6 +271,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
 
     loki_scratch_buf cmd_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data);
     curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
+    daemon_status(curr_daemon);
   }
 }
 
@@ -372,7 +383,17 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
 #if 1
   loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data);
   wallet->proc_handle = os_launch_process(cmd_buf.data);
-  itest_read_stdout_until(&wallet->shared_mem, "Balance");
+
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Error: refresh failed"), true},
+    {LOKI_STR_LIT("Error: refresh failed: unexpected error: proxy exception in refresh thread"), true},
+    {LOKI_STR_LIT("Balance"),               false},
+  };
+  
+  itest_read_possible_value const *proxy_exception_error = possible_values + 1;
+  itest_read_result result = itest_read_stdout_until(&wallet->shared_mem, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  LOKI_ASSERT_MSG(!str_find(result.buf.c_str, proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
 #endif
 }
 
@@ -453,25 +474,23 @@ int main(int, char **)
   }
 
 #if 1
-  // RUN_TEST(deregistration__1_unresponsive_node);
+  // RUN_TEST(latest__deregistration__1_unresponsive_node);
 
-  RUN_TEST(prepare_registration__check_solo_stake);
-  RUN_TEST(prepare_registration__check_100_percent_operator_cut_stake);
+  RUN_TEST(latest__prepare_registration__check_solo_stake);
+  RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
+  RUN_TEST(latest__register_service_node__allow_4_stakers);
+  RUN_TEST(latest__register_service_node__disallow_register_twice);
+  RUN_TEST(latest__stake__disallow_to_non_registered_node);
+  RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
 
-  RUN_TEST(register_service_node__allow_4_stakers);
-  RUN_TEST(register_service_node__check_gets_payed_expires_and_returns_funds);
-  RUN_TEST(register_service_node__disallow_register_twice);
+  RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
+  RUN_TEST(v10__register_service_node__check_grace_period);
+  RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
+  RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
+  RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
 
-  RUN_TEST(stake__allow_incremental_staking_until_node_active);
-  RUN_TEST(stake__allow_insufficient_stake_w_reserved_contributor);
-  RUN_TEST(stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  RUN_TEST(stake__disallow_to_non_registered_node);
-
-  RUN_TEST(transfer__check_fee_amount);
-  RUN_TEST(transfer__check_fee_amount_bulletproofs);
+  RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(prepare_registration__check_100_percent_operator_cut_stake);
-  RUN_TEST(register_service_node__allow_4_stakers);
 #endif
 
   int num_tests_passed = 0;

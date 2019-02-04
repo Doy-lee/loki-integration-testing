@@ -134,9 +134,10 @@ const int ITEST_INFINITE_TIMEOUT   = -1;
 void              itest_write_to_stdin              (in_out_shared_mem *shared_mem, char const *cmd);
 itest_read_result itest_write_then_read_stdout      (in_out_shared_mem *shared_mem, char const *cmd);
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit                     find_str);
-itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int find_strs_len);
+itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int possible_values_len);
 itest_read_result itest_read_stdout                 (in_out_shared_mem *shared_mem);
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, char const *find_str);
+itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len);
 void              itest_read_until_then_write_stdin (in_out_shared_mem *shared_mem, loki_str_lit find_str, char const *cmd);
 void              itest_read_stdout_for_ms          (in_out_shared_mem *shared_mem, int time_ms);
 void              itest_reset_shared_memory         (in_out_shared_mem *shared_mem);
@@ -239,7 +240,8 @@ struct start_daemon_params
   int           num_hardforks;
   loki_nettype  nettype          = loki_nettype::testnet;
 
-  void add_hardfork                 (int version, int height); // NOTE: Sets nettype to mainnet
+  void add_hardfork                          (int version, int height); // TODO: Sets daemon mode to fakechain sadly, can't keep testnet. We should fix this
+  void add_sequential_hardforks_until_version(int version);
   void load_latest_hardfork_versions();
 };
 

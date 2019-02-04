@@ -409,32 +409,7 @@ test_result latest__register_service_node__disallow_register_twice()
   return result;
 }
 
-test_result latest__stake__disallow_to_non_registered_node()
-{
-  test_result result = {};
-  INITIALISE_TEST_CONTEXT(result);
-
-  start_daemon_params daemon_params = {};
-  daemon_params.load_latest_hardfork_versions();
-  daemon_t daemon                   = create_and_start_daemon(daemon_params);
-
-  start_wallet_params wallet_params = {};
-  wallet_params.daemon              = &daemon;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
-  LOKI_DEFER { wallet_exit(&wallet); daemon_exit(&daemon); };
-
-  loki_addr my_addr = {};
-  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
-  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
-
-  loki_snode_key snode_key = {};
-  daemon_print_sn_key(&daemon, &snode_key);
-  EXPECT(result, wallet_stake(&wallet, &snode_key, 15) == false, "You should not be able to stake to a node that is not registered yet!");
-
-  return result;
-}
-
-test_result latest__stake__disallow_request_stake_unlock_twice()
+test_result latest__request_stake_unlock__disallow_request_twice()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -481,6 +456,72 @@ test_result latest__stake__disallow_request_stake_unlock_twice()
 
   EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key), "Failed to request our first stake unlock");
   EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key) == false, "We've already requested our stake to unlock, the second time should fail");
+  return result;
+}
+
+test_result latest__stake__check_transfer_doesnt_used_locked_key_images()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  daemon_t daemon = {};
+  wallet_t wallet = {};
+  LOKI_DEFER { wallet_exit(&wallet); daemon_exit(&daemon); };
+
+  // Start up daemon and wallet
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    daemon                            = create_and_start_daemon(daemon_params);
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+  }
+
+  loki_addr my_addr = {};
+  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+
+  // Register the service node
+  {
+    daemon_prepare_registration_params params             = {};
+    params.contributors[params.num_contributors].addr     = my_addr;
+    params.contributors[params.num_contributors++].amount = LOKI_FAKENET_STAKING_REQUIREMENT; // TODO(doyle): Assuming fakechain requirement of 100
+
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+  }
+
+  wallet_mine_atleast_n_blocks(&wallet, 1); // Get registration onto the chain
+  EXPECT(result, wallet_sweep_all(&wallet, my_addr.buf.c_str, nullptr), "Sweeping all outputs should avoid any key images/outputs that are locked and so should succeed.");
+  return result;
+}
+
+test_result latest__stake__disallow_to_non_registered_node()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  daemon_t daemon                   = create_and_start_daemon(daemon_params);
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+  LOKI_DEFER { wallet_exit(&wallet); daemon_exit(&daemon); };
+
+  loki_addr my_addr = {};
+  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+
+  loki_snode_key snode_key = {};
+  daemon_print_sn_key(&daemon, &snode_key);
+  EXPECT(result, wallet_stake(&wallet, &snode_key, 15) == false, "You should not be able to stake to a node that is not registered yet!");
+
   return result;
 }
 

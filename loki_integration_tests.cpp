@@ -457,15 +457,6 @@ int main(int, char **)
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
 
-  test_result results[128];
-  int results_index = 0;
-
-#define RUN_TEST(test_function) \
-  fprintf(stdout, #test_function); \
-  fflush(stdout); \
-  results[results_index++] = test_function(); \
-  print_test_results(&results[results_index-1])
-
   // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
   if (os_file_exists("./output/"))
   {
@@ -473,13 +464,23 @@ int main(int, char **)
     os_file_dir_make("./output");
   }
 
+#define RUN_TEST(test_function) \
+  fprintf(stdout, #test_function); \
+  fflush(stdout); \
+  results[results_index++] = test_function(); \
+  print_test_results(&results[results_index-1])
+
+  test_result results[128];
+  int results_index = 0;
+
 #if 1
   // RUN_TEST(latest__deregistration__1_unresponsive_node);
-
   RUN_TEST(latest__prepare_registration__check_solo_stake);
   RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
   RUN_TEST(latest__register_service_node__allow_4_stakers);
   RUN_TEST(latest__register_service_node__disallow_register_twice);
+  RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
+  RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
   RUN_TEST(latest__stake__disallow_to_non_registered_node);
   RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
 
@@ -491,6 +492,7 @@ int main(int, char **)
 
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
+  RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
 #endif
 
   int num_tests_passed = 0;

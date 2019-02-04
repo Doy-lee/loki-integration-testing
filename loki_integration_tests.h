@@ -149,6 +149,7 @@ void              itest_reset_shared_memory         (in_out_shared_mem *shared_m
 const int      LOKI_CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE     = 10;
 const int      LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW    = 30;
 const uint64_t LOKI_ATOMIC_UNITS                            = 1000000000ULL;
+const uint64_t LOKI_FAKENET_STAKING_REQUIREMENT             = 100;
 const int      LOKI_TARGET_DIFFICULTY                       = 120;
 const int      LOKI_STAKING_EXCESS_BLOCKS                   = 20;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(30);

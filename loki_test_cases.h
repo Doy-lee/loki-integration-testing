@@ -17,8 +17,9 @@ test_result latest__prepare_registration__check_solo_stake();
 test_result latest__prepare_registration__check_100_percent_operator_cut_stake();
 test_result latest__register_service_node__allow_4_stakers();
 test_result latest__register_service_node__disallow_register_twice();
+test_result latest__request_stake_unlock__disallow_request_twice();
+test_result latest__stake__check_transfer_doesnt_used_locked_key_images();
 test_result latest__stake__disallow_to_non_registered_node();
-test_result latest__stake__disallow_request_stake_unlock_twice();
 test_result latest__transfer__check_fee_amount_bulletproofs();
 
 test_result v10__register_service_node__check_gets_payed_expires_and_returns_funds();

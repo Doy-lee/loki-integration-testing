@@ -253,6 +253,7 @@ uint64_t wallet_status(wallet_t *wallet)
 
 bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 {
+  // TODO(doyle): Failure states
   // Example: Sweeping 30298.277954908 in 5 transactions for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
   loki_buffer<128> cmd("sweep_all %s", dest);
   itest_write_to_stdin(&wallet->shared_mem, cmd.c_str);
@@ -267,7 +268,13 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   num_transactions_str             = str_skip_to_next_digit(num_transactions_str);
   int num_transactions             = (int)atoi(num_transactions_str);
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("was rejected by daemon"), true},
+    {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
+  };
+
+  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", possible_values, LOKI_ARRAY_COUNT(possible_values));
 
   // Example: The below is repeated N times for num transactions
   // Transaction successfully submitted, transaction <cf6311bc0feb44a85e378d75f5a5e42e676ae6257a48992d0b5773310bf9179d>

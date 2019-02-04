@@ -163,6 +163,8 @@ const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_FAKENET = 30;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
 const int      LOKI_REORG_SAFETY_BUFFER                     = 20;
 const int      LOKI_QUORUM_SIZE                             = 10;
+const int      LOKI_MAX_NUM_CONTRIBUTORS                    = 4;
+const int      LOKI_MAX_LOCKED_KEY_IMAGES                   = LOKI_MAX_NUM_CONTRIBUTORS * 1;
 
 using loki_key_image                                        = loki_buffer<64  + 1>;
 using loki_transaction_id                                   = loki_buffer<64  + 1>;

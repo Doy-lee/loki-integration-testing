@@ -486,14 +486,20 @@ int main(int, char **)
   RUN_TEST(latest__prepare_registration__check_solo_stake);
   RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
 
+  RUN_TEST(latest__print_locked_stakes__check_no_locked_stakes);
+  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
+
   RUN_TEST(latest__register_service_node__allow_4_stakers);
   RUN_TEST(latest__register_service_node__disallow_register_twice);
 
-  RUN_TEST(latest__request_stake_unlock__check_stake_unlocked);
+  RUN_TEST(latest__request_stake_unlock__check_pooled_stake_unlocked);
   RUN_TEST(latest__request_stake_unlock__check_unlock_height);
   RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
 
+  RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
   RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
+  RUN_TEST(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
+  RUN_TEST(latest__stake__disallow_staking_when_all_amounts_reserved);
   RUN_TEST(latest__stake__disallow_to_non_registered_node);
 
   RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
@@ -513,14 +519,7 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(latest__print_locked_stakes__check_no_locked_stakes);
-  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
-
-  RUN_TEST(latest__request_stake_unlock__check_stake_unlocked);
-  RUN_TEST(latest__request_stake_unlock__check_unlock_height);
-  RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
-
-  RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
+  RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
 #endif
 
   int num_tests_passed = 0;

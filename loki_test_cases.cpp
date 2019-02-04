@@ -505,16 +505,26 @@ test_result latest__register_service_node__disallow_register_twice()
   return result;
 }
 
-test_result latest__request_stake_unlock__check_stake_unlocked()
+test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  daemon_t daemon = {};
-  wallet_t wallet = {}, dummy_wallet  = {};
-  LOKI_DEFER { wallet_exit(&wallet); wallet_exit(&dummy_wallet); daemon_exit(&daemon); };
+  daemon_t daemon        = {};
+  wallet_t wallets[4]    = {};
+  wallet_t dummy_wallet  = {};
+  LOKI_DEFER
+  {
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
+      wallet_exit(wallets + i);
 
-  // Start up daemon and wallet
+    wallet_exit(&dummy_wallet);
+    daemon_exit(&daemon);
+  };
+
+  // Start up daemon and wallet and mine until sufficient unlocked balances in each
+  loki_addr wallet_addrs[LOKI_ARRAY_COUNT(wallets)] = {};
+  loki_addr dummy_addr                              = {};
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
@@ -522,76 +532,105 @@ test_result latest__request_stake_unlock__check_stake_unlocked()
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
-    dummy_wallet                      = create_and_start_wallet(daemon_params.nettype, wallet_params);
 
-    wallet_set_default_testing_settings(&wallet);
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
+    {
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params);
+      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
+      wallet_set_default_testing_settings(wallets + i);
+    }
+
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params);
     wallet_set_default_testing_settings(&dummy_wallet);
+    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
+
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
+      wallet_mine_atleast_n_blocks(wallets + i, 5, 100);
+
+    wallet_mine_until_height(wallets + 0, 100);
   }
-
-  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
-
-  loki_addr wallet_addr, dummy_addr = {};
-  EXPECT(result, wallet_address(&wallet,       0, &wallet_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
-  EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
   // Register the service node
   loki_snode_key snode_key = {};
+  uint64_t staking_requirement_per_contributor = LOKI_FAKENET_STAKING_REQUIREMENT / LOKI_ARRAY_COUNT(wallet_addrs);
   {
     EXPECT(result, daemon_print_sn_key(&daemon, &snode_key), "Failed to get service node key, did daemon start in service node mode?");
 
-    daemon_prepare_registration_params params             = {};
-    params.contributors[params.num_contributors].addr     = wallet_addr;
-    params.contributors[params.num_contributors++].amount = LOKI_FAKENET_STAKING_REQUIREMENT; // TODO(doyle): Assuming fakechain requirement of 100
+    daemon_prepare_registration_params params = {};
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+    {
+      params.contributors[params.num_contributors].addr     = wallet_addrs[i];
+      params.contributors[params.num_contributors++].amount = staking_requirement_per_contributor;
+    }
 
     loki_scratch_buf registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "Failed to register service node");
   }
+  wallet_mine_atleast_n_blocks(&dummy_wallet, 5); // Get registration onto the chain
 
-  wallet_mine_atleast_n_blocks(&dummy_wallet, 1); // Get registration onto the chain
-  wallet_refresh(&wallet);
+  for (int i = 1; i < (int)LOKI_ARRAY_COUNT(wallets); ++i)
+  {
+    wallet_refresh(wallets + i);
+    EXPECT(result, wallet_stake(wallets + i, &snode_key, staking_requirement_per_contributor), "Wallet failed to stake");
+  }
+  wallet_mine_atleast_n_blocks(&dummy_wallet, 5); // Get stakes onto the chain
 
   // Check stakes show up as locked
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
   {
-    wallet_locked_stakes const locked_stakes = wallet_print_locked_stakes(&wallet);
+    wallet_refresh(wallets + i);
+    wallet_locked_stakes const locked_stakes = wallet_print_locked_stakes(wallets + i);
     EXPECT(result, locked_stakes.locked_stakes_len == 1, "We staked, so we should have locked key images");
 
     wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
-    EXPECT(result, stake->snode_key           == snode_key,                                            "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
-    EXPECT(result, stake->total_locked_amount == LOKI_FAKENET_STAKING_REQUIREMENT * LOKI_ATOMIC_UNITS, "Total locked amount: %zu didn't match expected: %zu",                                              stake->total_locked_amount, LOKI_FAKENET_STAKING_REQUIREMENT);
+    EXPECT(result, stake->snode_key           == snode_key,                                               "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->total_locked_amount == staking_requirement_per_contributor * LOKI_ATOMIC_UNITS, "Total locked amount: %zu didn't match expected: %zu",                                              stake->total_locked_amount, LOKI_FAKENET_STAKING_REQUIREMENT);
 
     EXPECT(result, stake->locked_amounts_len == 1, "We only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
     uint64_t amount = stake->locked_amounts[0];
-    EXPECT(result, amount == LOKI_FAKENET_STAKING_REQUIREMENT * LOKI_ATOMIC_UNITS,
+    EXPECT(result, amount == staking_requirement_per_contributor * LOKI_ATOMIC_UNITS,
         "Locked stake amount didn't match what we expected, amount: %zu, requirement: %zu",
-        amount, LOKI_FAKENET_STAKING_REQUIREMENT * LOKI_ATOMIC_UNITS);
+        amount, staking_requirement_per_contributor * LOKI_ATOMIC_UNITS);
   }
 
-  // Unlock and expire the service node
+  // One person unlocks, the remainder will automatically expire the service node
+  uint64_t unlock_height = 0;
+  EXPECT(result, wallet_request_stake_unlock(wallets + 0, &snode_key, &unlock_height), "Failed to request stake unlock");
+  wallet_mine_atleast_n_blocks(&dummy_wallet, 1, 25); // Get unlocks
+
   {
-    uint64_t unlock_height = 0;
-    EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key, &unlock_height), "Failed to request stake unlock");
-    wallet_mine_until_height(&dummy_wallet, unlock_height + 30);
+    daemon_snode_status status = daemon_print_sn_status(&daemon);
+    EXPECT(result, status.registered, "We mined too many blocks, the service node expired before we could check stake unlocking");
+  }
+
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+  {
+    wallet_refresh(wallets + i);
+    EXPECT(result, !wallet_request_stake_unlock(wallets + i, &snode_key, nullptr), "After 1 contributor has unlocked, all contributor key images will be unlocked automatically");
   }
 
   // Check no stakes show up as locked
-  wallet_refresh(&wallet);
+  wallet_mine_until_height(&dummy_wallet, unlock_height + 30);
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
   {
-    wallet_locked_stakes const locked_stakes = wallet_print_locked_stakes(&wallet);
+    wallet_refresh(wallets + i);
+    wallet_locked_stakes const locked_stakes = wallet_print_locked_stakes(wallets + i);
     EXPECT(result, locked_stakes.locked_stakes_len      == 0, "Node shoud have expired, no stakes should be locked");
     EXPECT(result, locked_stakes.blacklisted_stakes_len == 0, "Node did not get deregistered, so we should not have any blacklisted key images");
   }
 
-  // Sweep to dummy wallet and check out remaining balance is zero
+  // Sweep to dummy wallet
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.c_str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
+
+  // Check the remaining balance is zero
+  wallet_mine_money_unlock_time_blocks(&dummy_wallet);
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
   {
-    wallet_sweep_all(&wallet, dummy_addr.buf.c_str, nullptr);
-    wallet_mine_money_unlock_time_blocks(&dummy_wallet);
-
-    wallet_refresh(&wallet);
+    wallet_refresh(wallets + i);
     uint64_t unlocked_balance = 0;
-    uint64_t balance = wallet_balance(&wallet, &unlocked_balance);
-
+    uint64_t balance = wallet_balance(wallets + i, &unlocked_balance);
     EXPECT(result, unlocked_balance == 0, "After unlocking and expiring the service node. We sweep all our funds out to a dummy wallet, there should be no unlocked balance in this wallet, unlocked_balance: %zu", unlocked_balance);
     EXPECT(result, balance == 0, "After unlocking and expiring the service node. We sweep all our funds out to a dummy wallet, there should be no balance in this wallet, balance: %zu", balance);
   }
@@ -704,6 +743,161 @@ test_result latest__request_stake_unlock__disallow_request_twice()
   return result;
 }
 
+test_result latest__stake__check_incremental_stakes_decreasing_min_contribution()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  daemon_t daemon        = {};
+  wallet_t wallets[4]    = {};
+  wallet_t dummy_wallet  = {};
+  LOKI_DEFER
+  {
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
+      wallet_exit(wallets + i);
+
+    wallet_exit(&dummy_wallet);
+    daemon_exit(&daemon);
+  };
+
+  // Start up daemon and wallet and mine until sufficient unlocked balances in each
+  loki_addr wallet_addrs[LOKI_ARRAY_COUNT(wallets)] = {};
+  loki_addr dummy_addr                              = {};
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    daemon                            = create_and_start_daemon(daemon_params);
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
+    {
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params);
+      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
+      wallet_set_default_testing_settings(wallets + i);
+    }
+
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&dummy_wallet);
+    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
+
+    LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
+      wallet_mine_atleast_n_blocks(wallets + i, 5, 100);
+
+    wallet_mine_until_height(wallets + 0, 100);
+  }
+
+  // Register the service node
+  loki_snode_key snode_key = {};
+  {
+    EXPECT(result, daemon_print_sn_key(&daemon, &snode_key), "Failed to get service node key, did daemon start in service node mode?");
+    daemon_prepare_registration_params params             = {};
+    params.open_pool                                      = true;
+    params.contributors[params.num_contributors].addr     = wallet_addrs[0];
+    params.contributors[params.num_contributors++].amount = 50;
+
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "Failed to register service node");
+  }
+  wallet_mine_atleast_n_blocks(&dummy_wallet, 5); // Get registration onto the chain
+
+  // Wallet 1 contributes 40, the minimum contribution should be (50 loki remaining/ 3 key images remaining)
+  {
+    wallet_refresh(wallets + 1);
+    EXPECT(result, wallet_stake(wallets + 1, &snode_key, 40), "Wallet failed to stake");
+    wallet_mine_atleast_n_blocks(&dummy_wallet, 5);
+  }
+
+  // Wallet 2 contributes 8, the minimum contribution should be (10 loki remaining/ 2 key images remaining)
+  {
+    wallet_refresh(wallets + 2);
+    EXPECT(result, wallet_stake(wallets + 2, &snode_key, 8), "Wallet failed to stake");
+    wallet_mine_atleast_n_blocks(&dummy_wallet, 5);
+  }
+
+  // Wallet 3 tries to contribute 1 loki, but fails, the minimum contribution should be (2 loki remaining/ 1 key images remaining)
+  {
+    wallet_refresh(wallets + 3);
+    EXPECT(result, !wallet_stake(wallets + 3, &snode_key, 1), "Wallet should not be able to stake below the min contribution amount which should be 2 loki");
+  }
+
+  // Wallet 3 contributes 2 loki, the minimum contribution should be (2 loki remaining/ 1 key images remaining)
+  {
+    wallet_refresh(wallets + 3);
+    EXPECT(result, wallet_stake(wallets + 3, &snode_key, 2), "Wallet failed to stake");
+    wallet_mine_atleast_n_blocks(&dummy_wallet, 5);
+  }
+
+  // Check stakes show up as locked
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+  {
+    wallet_refresh(wallets + i);
+    wallet_locked_stakes const locked_stakes = wallet_print_locked_stakes(wallets + i);
+    EXPECT(result, locked_stakes.locked_stakes_len == 1, "We staked, so we should have locked key images");
+
+    wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
+    EXPECT(result, stake->snode_key           == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->locked_amounts_len  == 1,         "We only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
+
+    uint64_t amount = stake->locked_amounts[0];
+    uint64_t expected_amount = 0;
+    if      (i == 0) expected_amount = 50;
+    else if (i == 1) expected_amount = 40;
+    else if (i == 2) expected_amount = 8;
+    else             expected_amount = 2;
+
+    EXPECT(result, stake->total_locked_amount == expected_amount * LOKI_ATOMIC_UNITS, "Total locked amount: %zu didn't match expected: %zu", stake->total_locked_amount, expected_amount * LOKI_ATOMIC_UNITS);
+    EXPECT(result, amount == expected_amount * LOKI_ATOMIC_UNITS,
+        "Locked stake amount didn't match what we expected, amount: %zu, requirement: %zu",
+        amount, expected_amount * LOKI_ATOMIC_UNITS);
+  }
+
+  // One person unlocks, the remainder will automatically expire the service node
+  uint64_t unlock_height = 0;
+  EXPECT(result, wallet_request_stake_unlock(wallets + 0, &snode_key, &unlock_height), "Failed to request stake unlock");
+  wallet_mine_atleast_n_blocks(&dummy_wallet, 1, 25); // Get unlocks
+
+  {
+    daemon_snode_status status = daemon_print_sn_status(&daemon);
+    EXPECT(result, status.registered, "We mined too many blocks, the service node expired before we could check stake unlocking");
+  }
+
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+  {
+    wallet_refresh(wallets + i);
+    EXPECT(result, !wallet_request_stake_unlock(wallets + i, &snode_key, nullptr), "After 1 contributor has unlocked, all contributor key images will be unlocked automatically");
+  }
+
+  // Check no stakes show up as locked
+  wallet_mine_until_height(&dummy_wallet, unlock_height + 30);
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+  {
+    wallet_refresh(wallets + i);
+    wallet_locked_stakes const locked_stakes = wallet_print_locked_stakes(wallets + i);
+    EXPECT(result, locked_stakes.locked_stakes_len      == 0, "Node shoud have expired, no stakes should be locked");
+    EXPECT(result, locked_stakes.blacklisted_stakes_len == 0, "Node did not get deregistered, so we should not have any blacklisted key images");
+  }
+
+  // Sweep to dummy wallet
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.c_str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
+
+  // Check the remaining balance is zero
+  wallet_mine_money_unlock_time_blocks(&dummy_wallet);
+  LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
+  {
+    wallet_refresh(wallets + i);
+    uint64_t unlocked_balance = 0;
+    uint64_t balance = wallet_balance(wallets + i, &unlocked_balance);
+    EXPECT(result, unlocked_balance == 0, "After unlocking and expiring the service node. We sweep all our funds out to a dummy wallet, there should be no unlocked balance in this wallet, unlocked_balance: %zu", unlocked_balance);
+    EXPECT(result, balance == 0, "After unlocking and expiring the service node. We sweep all our funds out to a dummy wallet, there should be no balance in this wallet, balance: %zu", balance);
+  }
+
+  return result;
+}
+
 test_result latest__stake__check_transfer_doesnt_used_locked_key_images()
 {
   test_result result = {};
@@ -742,6 +936,134 @@ test_result latest__stake__check_transfer_doesnt_used_locked_key_images()
 
   wallet_mine_atleast_n_blocks(&wallet, 1); // Get registration onto the chain
   EXPECT(result, wallet_sweep_all(&wallet, my_addr.buf.c_str, nullptr), "Sweeping all outputs should avoid any key images/outputs that are locked and so should succeed.");
+  return result;
+}
+
+test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+
+  daemon_t daemon           = create_and_start_daemon(daemon_params);
+  wallet_t  stakers[2]      = {};
+  loki_addr stakers_addr[2] = {};
+
+  // Mine and unlock funds
+  for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+  {
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    stakers[i]                        = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_t *staker                  = stakers + i;
+
+    wallet_set_default_testing_settings(staker);
+    wallet_address(staker, 0, stakers_addr + i);
+    wallet_mine_atleast_n_blocks(staker, 10);
+  }
+
+  LOKI_DEFER
+  {
+    daemon_exit(&daemon);
+    for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+      wallet_exit(stakers + i);
+  };
+
+  wallet_t *owner = stakers + 0;
+  wallet_mine_until_height(owner, 100);
+
+  loki_snode_key snode_key = {};
+  daemon_print_sn_key(&daemon, &snode_key);
+
+  // Register the service node and put it on the chain
+  uint64_t half_stake_requirement = LOKI_FAKENET_STAKING_REQUIREMENT / 2;
+  daemon_prepare_registration_params registration_params = {};
+  {
+    registration_params.num_contributors = (int)LOKI_ARRAY_COUNT(stakers);
+    for (int i = 0; i < registration_params.num_contributors; ++i)
+    {
+      registration_params.contributors[i].addr   = stakers_addr[i];
+      registration_params.contributors[i].amount = half_stake_requirement; // TODO(doyle): Assumes testnet staking requirement of 100
+    }
+
+    loki_scratch_buf registration_cmd = {};
+    daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
+    EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+    wallet_mine_atleast_n_blocks(owner, 1, 100 /*mining_duration*/);
+  }
+
+  uint64_t num_locked_contributions                = 1;
+  uint64_t min_node_contribution                   = half_stake_requirement / (LOKI_MAX_LOCKED_KEY_IMAGES - num_locked_contributions);
+  uint64_t amount_reserved_but_not_contributed_yet = registration_params.contributors[1].amount;
+
+  wallet_refresh(stakers + 1);
+  EXPECT(result, !wallet_stake(stakers + 1, &snode_key, 1), "Reserved contributor, but, cannot stake lower than the reserved amount/min node amount, which is MAX((staking_requirement/(4 max_key_images)), reserved_amount)");
+  EXPECT(result, !wallet_stake(stakers + 1, &snode_key, min_node_contribution), "Reserved contributor, but, cannot stake lower than the reserved amount/min node amount, which is MAX((staking_requirement/(4 max_key_images)), reserved_amount)");
+  EXPECT(result, wallet_stake(stakers + 1, &snode_key, amount_reserved_but_not_contributed_yet), "Reserved contributor failed to stake the correct amount");
+
+  wallet_mine_atleast_n_blocks(stakers + 1, 1);
+  daemon_snode_status snode_status = daemon_print_sn_status(&daemon);
+  EXPECT(result, snode_status.registered, "Service node failed to become registered");
+  return result;
+}
+
+test_result latest__stake__disallow_staking_when_all_amounts_reserved()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+
+  daemon_t daemon           = create_and_start_daemon(daemon_params);
+  wallet_t  stakers[2]      = {};
+  loki_addr stakers_addr[2] = {};
+
+  // Mine and unlock funds
+  for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+  {
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    stakers[i]                        = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_t *staker                  = stakers + i;
+
+    wallet_set_default_testing_settings(staker);
+    wallet_address(staker, 0, stakers_addr + i);
+    wallet_mine_atleast_n_blocks(staker, 10);
+  }
+
+  LOKI_DEFER
+  {
+    daemon_exit(&daemon);
+    for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+      wallet_exit(stakers + i);
+  };
+
+  wallet_t *owner = stakers + 0;
+  wallet_mine_until_height(owner, 100);
+
+  loki_snode_key snode_key = {};
+  daemon_print_sn_key(&daemon, &snode_key);
+
+  // Register the service node and put it on the chain
+  {
+    daemon_prepare_registration_params registration_params = {};
+    registration_params.num_contributors = (int)LOKI_ARRAY_COUNT(stakers);
+    for (int i = 0; i < registration_params.num_contributors; ++i)
+    {
+      registration_params.contributors[i].addr   = stakers_addr[i];
+      registration_params.contributors[i].amount = LOKI_FAKENET_STAKING_REQUIREMENT/registration_params.num_contributors; // TODO(doyle): Assumes testnet staking requirement of 100
+    }
+
+    loki_scratch_buf registration_cmd = {};
+    daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
+    EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+    wallet_mine_atleast_n_blocks(owner, 1, 100 /*mining_duration*/);
+  }
+
+  EXPECT(result, !wallet_stake(owner, &snode_key, 50), "The node is completely reserved, the owner should not be able to contribute more into the node.");
   return result;
 }
 

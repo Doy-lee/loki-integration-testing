@@ -28,11 +28,14 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes();
 test_result latest__register_service_node__allow_4_stakers();
 test_result latest__register_service_node__disallow_register_twice();
 
-test_result latest__request_stake_unlock__check_stake_unlocked();
+test_result latest__request_stake_unlock__check_pooled_stake_unlocked();
 test_result latest__request_stake_unlock__check_unlock_height();
 test_result latest__request_stake_unlock__disallow_request_twice();
 
+test_result latest__stake__check_incremental_stakes_decreasing_min_contribution();
 test_result latest__stake__check_transfer_doesnt_used_locked_key_images();
+test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node();
+test_result latest__stake__disallow_staking_when_all_amounts_reserved();
 test_result latest__stake__disallow_to_non_registered_node();
 
 test_result latest__transfer__check_fee_amount_bulletproofs();

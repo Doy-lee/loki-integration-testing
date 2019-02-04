@@ -61,7 +61,7 @@ void wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const p
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
   itest_write_then_read_stdout_until(&wallet->shared_mem, refresh_height.c_str, LOKI_STR_LIT("Wallet password"));
 
-  
+
 #if 0 // TODO(doyle): Hack. Can't get this to work reliably, right not the binaries are built to default to these settings
 #if 1
   itest_write_then_read_stdout_until(&wallet->shared_mem, ask_password.c_str,   LOKI_STR_LIT("Wallet password: "));
@@ -352,7 +352,6 @@ void wallet_mine_atleast_n_blocks(wallet_t *wallet, int num_blocks, int mining_d
   for (uint64_t start_height = wallet_status(wallet);;)
   {
     wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
-    os_sleep_ms(500); // TODO(doyle): Hack
     wallet_refresh(wallet);
 
     uint64_t curr_height = wallet_status(wallet);
@@ -371,7 +370,7 @@ void wallet_mine_for_n_milliseconds(wallet_t *wallet, int milliseconds)
   };
 
   itest_write_then_read_stdout_until(&wallet->shared_mem, "start_mining", possible_values, LOKI_ARRAY_COUNT(possible_values));
-  os_sleep_ms(milliseconds);
+  os_sleep_ms(LOKI_MAX(1000, milliseconds));
   itest_write_then_read_stdout_until(&wallet->shared_mem, "stop_mining", LOKI_STR_LIT("Mining stopped in daemon"));
 }
 
@@ -381,7 +380,6 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
   for (;unlocked_balance < desired_unlocked_balance;)
   {
     wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
-    os_sleep_ms(250);
     wallet_refresh                (wallet);
     wallet_balance                (wallet, &unlocked_balance);
   }

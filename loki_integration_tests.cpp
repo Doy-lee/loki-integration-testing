@@ -470,6 +470,8 @@ int main(int, char **)
   RUN_TEST(transfer__check_fee_amount);
   RUN_TEST(transfer__check_fee_amount_bulletproofs);
 #else
+  RUN_TEST(prepare_registration__check_100_percent_operator_cut_stake);
+  RUN_TEST(register_service_node__allow_4_stakers);
 #endif
 
   int num_tests_passed = 0;

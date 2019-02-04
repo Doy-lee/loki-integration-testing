@@ -469,14 +469,14 @@ int main(int, char **)
     os_file_dir_make("./output");
   }
 
+  test_result results[128];
+  int results_index = 0;
+
 #define RUN_TEST(test_function) \
-  fprintf(stdout, #test_function); \
+  fprintf(stdout, "[%03d] " #test_function, results_index + 1); \
   fflush(stdout); \
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
-
-  test_result results[128];
-  int results_index = 0;
 
 #if 1
   //

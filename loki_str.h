@@ -24,6 +24,7 @@ char const *str_skip_to_next_alpha_char        (char const *src);
 char const *str_skip_to_next_whitespace        (char const *src);
 char const *str_skip_to_next_whitespace_inplace(char const *src);
 char const *str_skip_to_next_word              (char const **src);
+char const *str_skip_to_next_word              (char const *src);
 char const *str_skip_whitespace                (char const *src);
 
 #endif // LOKI_STR_H
@@ -160,6 +161,13 @@ char const *str_skip_to_next_word(char const **src)
   while ((*src) && !char_is_whitespace((*src)[0])) ++(*src);
   while ((*src) &&  char_is_whitespace((*src)[0])) ++(*src);
   return *src;
+}
+
+char const *str_skip_to_next_word(char const *src)
+{
+  while (src && !char_is_whitespace(src[0])) ++src;
+  while (src &&  char_is_whitespace(src[0])) ++src;
+  return src;
 }
 
 char const *str_skip_whitespace(char const *src)

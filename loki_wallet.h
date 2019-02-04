@@ -17,32 +17,64 @@ struct wallet_params
 };
 
 // TODO(doyle): This function should probably run by default since you almost always want it
-void                wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params = {});
+void                 wallet_set_default_testing_settings (wallet_t *wallet, wallet_params const params = {});
 
-bool                wallet_address                     (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
-bool                wallet_address_new                 (wallet_t *wallet, loki_addr *addr);
-uint64_t            wallet_balance                     (wallet_t *wallet, uint64_t *unlocked_balance);
-void                wallet_exit                        (wallet_t *wallet);
-bool                wallet_integrated_address          (wallet_t *wallet, loki_addr *addr);
-bool                wallet_payment_id                  (wallet_t *wallet, loki_payment_id64 *id);
-bool                wallet_refresh                     (wallet_t *wallet);
-bool                wallet_set_daemon                  (wallet_t *wallet, struct daemon_t const *daemon);
-bool                wallet_stake                       (wallet_t *wallet, loki_snode_key const *service_node_key, uint64_t amount, loki_transaction_id *tx_id = nullptr);
-bool                wallet_status                      (wallet_t *wallet, uint64_t *height); // height: The current height the wallet is synced at
+bool                 wallet_address                      (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
+bool                 wallet_address_new                  (wallet_t *wallet, loki_addr *addr);
+uint64_t             wallet_balance                      (wallet_t *wallet, uint64_t *unlocked_balance);
+void                 wallet_exit                         (wallet_t *wallet);
+bool                 wallet_integrated_address           (wallet_t *wallet, loki_addr *addr);
+bool                 wallet_payment_id                   (wallet_t *wallet, loki_payment_id64 *id);
+
+struct wallet_blacklisted_stake
+{
+  loki_key_image key_image;
+  uint64_t       unlock_height;
+};
+
+struct wallet_locked_amount
+{
+  uint64_t amount;
+};
+
+struct wallet_locked_stake
+{
+  loki_snode_key       snode_key;
+  uint64_t             unlock_height;
+  uint64_t             total_locked_amount;
+  uint64_t             locked_amounts[4];
+  int                  locked_amounts_len;
+};
+
+struct wallet_locked_stakes
+{
+  wallet_locked_stake      locked_stakes[8];
+  int                      locked_stakes_len;
+
+  wallet_blacklisted_stake blacklisted_stakes[8];
+  int                      blacklisted_stakes_len;
+};
+
+wallet_locked_stakes wallet_print_locked_stakes          (wallet_t *wallet);
+bool                 wallet_refresh                      (wallet_t *wallet);
+bool                 wallet_set_daemon                   (wallet_t *wallet, struct daemon_t const *daemon);
+bool                 wallet_stake                        (wallet_t *wallet, loki_snode_key const *service_node_key, uint64_t amount, loki_transaction_id *tx_id = nullptr);
+bool                 wallet_status                       (wallet_t *wallet, uint64_t *height); // height: The current height the wallet is synced at
 
 // TODO(doyle): Need to support integrated address
-bool                wallet_sweep_all                   (wallet_t *wallet, char      const *dest, loki_transaction *tx);
-bool                wallet_transfer                    (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
-bool                wallet_transfer                    (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
+bool                 wallet_sweep_all                    (wallet_t *wallet, char      const *dest, loki_transaction *tx);
+bool                 wallet_transfer                     (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
+bool                 wallet_transfer                     (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
 
-void                wallet_mine_atleast_n_blocks       (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 1000);
-inline void         wallet_mine_unlock_time_blocks     (wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
-void                wallet_mine_for_n_milliseconds     (wallet_t *wallet, int milliseconds);
-uint64_t            wallet_mine_until_unlocked_balance (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 1000); // return: The actual unlocked balance, can vary by abit.
+void                 wallet_mine_atleast_n_blocks        (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 1000);
+inline void          wallet_mine_money_unlock_time_blocks(wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
+void                 wallet_mine_for_n_milliseconds      (wallet_t *wallet, int milliseconds);
+uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 1000); // return: The actual unlocked balance, can vary by abit.
+uint64_t             wallet_mine_until_height            (wallet_t *wallet, uint64_t desired_height,           int mining_duration_in_ms = 1000); // return: The actual height
 
 // TODO(doyle): This should return the transaction
-bool                wallet_request_stake_unlock        (wallet_t *wallet, loki_snode_key const *snode_key);
-bool                wallet_register_service_node       (wallet_t *wallet, char const *registration_cmd);
+bool                 wallet_request_stake_unlock         (wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height = nullptr);
+bool                 wallet_register_service_node        (wallet_t *wallet, char const *registration_cmd);
 
 #endif // LOKI_WALLET_H
 
@@ -176,6 +208,72 @@ bool wallet_payment_id(wallet_t *wallet, loki_payment_id64 *id)
 
   id->append("%.*s", output.buf.max(), start);
   return true;
+}
+
+wallet_locked_stakes wallet_print_locked_stakes(wallet_t *wallet)
+{
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("No locked stakes known for this wallet on the network"), false},
+    {LOKI_STR_LIT("Unlock Height"), false},
+  };
+
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "print_locked_stakes", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  wallet_locked_stakes result = {};
+
+  char const *output_ptr = output.buf.c_str;
+  while(char const *service_node_str = str_find(output_ptr, "Service Node: ")) // Parse out the locked stakes
+  {
+    LOKI_ASSERT(result.locked_stakes_len < (int)LOKI_ARRAY_COUNT(result.locked_stakes));
+    wallet_locked_stake *stake = result.locked_stakes + result.locked_stakes_len++;
+    service_node_str = str_skip_to_next_word(service_node_str);
+    service_node_str = str_skip_to_next_word(service_node_str);
+    stake->snode_key = service_node_str;
+
+    char const *height_label = str_find(service_node_str, "Unlock Height: ");
+    char const *height_str   = str_skip_to_next_word(height_label);
+    height_str               = str_skip_to_next_word(height_str);
+    stake->unlock_height     = atoi(height_str);
+
+    char const *total_locked_label = str_find(height_str, "Total Locked: ");
+    char const *total_locked_str   = str_skip_to_next_digit(total_locked_label);
+    stake->total_locked_amount     = str_parse_loki_amount(total_locked_str);
+
+    char const *amount_label = str_find(total_locked_str, "Amount/Key Image");
+    char const *amount_str   = str_skip_to_next_digit(amount_label);
+    stake->locked_amounts[stake->locked_amounts_len++] = str_parse_loki_amount(amount_str);
+    for(;;)
+    {
+      while(amount_str[0] != '\n') amount_str++;
+      amount_str = str_skip_whitespace(amount_str);
+
+      output_ptr = amount_str;
+      if (!char_is_num(amount_str[0]))
+        break;
+
+      LOKI_ASSERT(stake->locked_amounts_len < (int)LOKI_ARRAY_COUNT(stake->locked_amounts));
+      stake->locked_amounts[stake->locked_amounts_len++] = str_parse_loki_amount(amount_str);
+    }
+  }
+
+  while(char const *blacklist_str = str_find(output_ptr, "Blacklisted Stakes")) // Parse out the blacklisted stakes
+  {
+    LOKI_ASSERT(result.blacklisted_stakes_len < (int)LOKI_ARRAY_COUNT(result.blacklisted_stakes));
+    wallet_blacklisted_stake *stake = result.blacklisted_stakes + result.blacklisted_stakes_len++;
+
+    char const *label        = str_find(blacklist_str, "Unlock Height/Key Image: ");
+    char const *height_str   = str_skip_to_next_digit(label);
+    stake->unlock_height     = atoi(height_str);
+
+    char const *key_image_str = height_str;
+    while(key_image_str[0] != '/') key_image_str++;
+    key_image_str++;
+
+    stake->key_image = key_image_str;
+    output_ptr = key_image_str;
+  }
+
+  return result;
 }
 
 bool wallet_refresh(wallet_t *wallet)
@@ -395,7 +493,19 @@ uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_u
   return unlocked_balance;
 }
 
-bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_key)
+uint64_t wallet_mine_until_height(wallet_t *wallet, uint64_t desired_height, int mining_duration_in_ms)
+{
+  uint64_t curr_height = wallet_status(wallet);
+  for (; curr_height < desired_height; curr_height = wallet_status(wallet))
+  {
+    wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
+    wallet_refresh(wallet);
+  }
+
+  return curr_height;
+}
+
+bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height)
 {
   itest_read_possible_value const possible_values[] =
   {
@@ -406,12 +516,30 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
     {LOKI_STR_LIT("Unexpected 0 contributions in service node for this wallet "), true},
     {LOKI_STR_LIT("No service node is known for: "), true},
     {LOKI_STR_LIT("has already been requested to be unlocked, unlocking at height: "), true},
-    {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
+    {LOKI_STR_LIT("You are requesting to unlock a stake of"), false},
   };
 
   loki_buffer<256> cmd("request_stake_unlock %s", snode_key->c_str);
   itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  return possible_values[output.matching_find_strs_index].is_fail_msg;
+
+  if (possible_values[output.matching_find_strs_index].is_fail_msg)
+    return false;
+
+  if (unlock_height)
+  {
+    char const *expiring_str      = str_find(output.buf.c_str, "You will continue receiving rewards until the service node expires at the estimated height: ");
+    char const *unlock_height_str = str_skip_to_next_digit(expiring_str);
+    *unlock_height = static_cast<uint64_t>(atoi(unlock_height_str));
+  }
+
+  itest_read_possible_value const possible_values2[] =
+  {
+    {LOKI_STR_LIT("Error: Reason: "), true},
+    {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
+  };
+
+  output = itest_read_stdout_until(&wallet->shared_mem, possible_values2, LOKI_ARRAY_COUNT(possible_values2));
+  return !possible_values2[output.matching_find_strs_index].is_fail_msg;
 }
 
 bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd)

@@ -73,6 +73,12 @@ struct loki_buffer
   void clear() { len = 0; data[0] = 0; }
   int  max()   { return MAX; };
 
+  bool operator ==(loki_buffer const &other) const
+  {
+    if (len != other.len) return false;
+    return (memcmp(data, other.data, other.len) == 0);
+  }
+
   union
   {
     char data[MAX];
@@ -153,10 +159,12 @@ const uint64_t LOKI_FAKENET_STAKING_REQUIREMENT             = 100;
 const int      LOKI_TARGET_DIFFICULTY                       = 120;
 const int      LOKI_STAKING_EXCESS_BLOCKS                   = 20;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(30);
+const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_FAKENET = 30;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
 const int      LOKI_REORG_SAFETY_BUFFER                     = 20;
 const int      LOKI_QUORUM_SIZE                             = 10;
 
+using loki_key_image                                        = loki_buffer<64  + 1>;
 using loki_transaction_id                                   = loki_buffer<64  + 1>;
 using loki_snode_key                                        = loki_buffer<64  + 1>;
 using loki_payment_id16                                     = loki_buffer<16  + 1>;

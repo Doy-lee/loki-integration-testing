@@ -457,6 +457,11 @@ int main(int, char **)
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
 
+  //  - when a test fails using the EXPECT macro we should preserve the error
+  //    message from the program, because right now we auto close the terminals
+  //    which means when it fails, we need to step into the debugger and inspect
+  //    the program to figure out why it failed.
+
   // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
   if (os_file_exists("./output/"))
   {
@@ -474,24 +479,47 @@ int main(int, char **)
   int results_index = 0;
 
 #if 1
+  //
+  // Latest
+  //
   // RUN_TEST(latest__deregistration__1_unresponsive_node);
   RUN_TEST(latest__prepare_registration__check_solo_stake);
   RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
+
   RUN_TEST(latest__register_service_node__allow_4_stakers);
   RUN_TEST(latest__register_service_node__disallow_register_twice);
+
+  RUN_TEST(latest__request_stake_unlock__check_stake_unlocked);
+  RUN_TEST(latest__request_stake_unlock__check_unlock_height);
   RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
+
   RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
   RUN_TEST(latest__stake__disallow_to_non_registered_node);
+
   RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
 
+  //
+  // V10
+  //
   RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
   RUN_TEST(v10__register_service_node__check_grace_period);
+
   RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
   RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
   RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
 
+  //
+  // V09
+  //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
+  RUN_TEST(latest__print_locked_stakes__check_no_locked_stakes);
+  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
+
+  RUN_TEST(latest__request_stake_unlock__check_stake_unlocked);
+  RUN_TEST(latest__request_stake_unlock__check_unlock_height);
+  RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
+
   RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
 #endif
 

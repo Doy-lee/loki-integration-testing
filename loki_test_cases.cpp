@@ -122,7 +122,7 @@ test_result latest__deregistration__1_unresponsive_node()
   LOKI_DEFER
   {
     wallet_exit(&wallet);
-    for (size_t i = 0; i < NUM_DAEMONS; ++i)
+    for (size_t i = 0; i < (size_t)NUM_DAEMONS; ++i)
       daemon_exit(daemons + i);
   };
 
@@ -690,6 +690,33 @@ test_result latest__request_stake_unlock__check_unlock_height()
 
   uint64_t expected_unlock_height = curr_height + (LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_FAKENET / 2);
   EXPECT(result, unlock_height == curr_height + (LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_FAKENET / 2), "The unlock height: %zu, should be estimated to be the curr height + half of the blacklisting period (aka. old staking period): %zu", unlock_height, expected_unlock_height);
+  return result;
+}
+
+test_result latest__request_stake_unlock__disallow_request_on_non_existent_node()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  loki_snode_key snode_key = {};
+  daemon_t daemon          = {};
+  wallet_t wallet          = {};
+  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
+
+  // Setup wallet and daemon
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    daemon = create_and_start_daemon(daemon_params);
+    LOKI_ASSERT(daemon_print_sn_key(&daemon, &snode_key));
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+  }
+
+  EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key) == false, "We should be unable to request a stake unlock on a node that is not registered");
   return result;
 }
 

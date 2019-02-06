@@ -30,6 +30,7 @@ test_result latest__register_service_node__disallow_register_twice();
 
 test_result latest__request_stake_unlock__check_pooled_stake_unlocked();
 test_result latest__request_stake_unlock__check_unlock_height();
+test_result latest__request_stake_unlock__disallow_request_on_non_existent_node();
 test_result latest__request_stake_unlock__disallow_request_twice();
 
 test_result latest__stake__check_incremental_stakes_decreasing_min_contribution();

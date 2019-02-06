@@ -13,12 +13,27 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
-#if 1
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; \"";
+enum struct terminal_type_t
+{
+  lxterminal,
+  xterm,
+};
+
+#define XTERM_CMD 1
+#define KEEP_TERMINAL_OPEN 0
+
+#if KEEP_TERMINAL_OPEN
+    #define SHOULD_PERSIST_TERMINAL "bash"
 #else
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/lokid %s; bash\"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-test/bin/loki-wallet-cli %s; bash\"";
+    #define SHOULD_PERSIST_TERMINAL ""
+#endif
+
+#if LXTERMINAL_CMD
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/lokid %s; "           SHOULD_PERSIST_TERMINAL "\"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; " SHOULD_PERSIST_TERMINAL "\"";
+#elif XTERM_CMD
+char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/lokid %s; "           SHOULD_PERSIST_TERMINAL "\"";
+char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; " SHOULD_PERSIST_TERMINAL "\"";
 #endif
 
 struct state_t
@@ -494,6 +509,7 @@ int main(int, char **)
 
   RUN_TEST(latest__request_stake_unlock__check_pooled_stake_unlocked);
   RUN_TEST(latest__request_stake_unlock__check_unlock_height);
+  RUN_TEST(latest__request_stake_unlock__disallow_request_on_non_existent_node);
   RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
 
   RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
@@ -519,7 +535,7 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
+  RUN_TEST(latest__request_stake_unlock__disallow_request_on_non_existent_node);
 #endif
 
   int num_tests_passed = 0;

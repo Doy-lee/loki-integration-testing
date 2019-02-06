@@ -51,7 +51,7 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
 
 void print_test_results(test_result const *test)
 {
-  int const TARGET_LEN = 80;
+  int const TARGET_LEN = 74;
 
   if (test->failed)
   {
@@ -767,6 +767,66 @@ test_result latest__request_stake_unlock__disallow_request_twice()
 
   EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key), "Failed to request our first stake unlock");
   EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key) == false, "We've already requested our stake to unlock, the second time should fail");
+  return result;
+}
+
+test_result latest__stake__allow_incremental_stakes_with_1_contributor()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  daemon_t daemon = {};
+  wallet_t wallet = {};
+  LOKI_DEFER { wallet_exit(&wallet); daemon_exit(&daemon); };
+
+  // Start up daemon and wallet
+  loki_snode_key snode_key = {};
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    daemon                            = create_and_start_daemon(daemon_params);
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+    EXPECT(result, daemon_print_sn_key(&daemon, &snode_key), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
+  }
+
+  loki_addr my_addr = {};
+  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+
+  // Register the service node
+  {
+    daemon_prepare_registration_params params             = {};
+    params.open_pool                                      = true;
+    params.contributors[params.num_contributors].addr     = my_addr;
+    params.contributors[params.num_contributors++].amount = 25;
+
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+    wallet_mine_atleast_n_blocks(&wallet, 1);
+  }
+
+  // Contributor 1, sends in, 35, 20, 25
+  {
+    wallet_refresh(&wallet);
+    EXPECT(result, wallet_stake(&wallet, &snode_key, 35), "Wallet failed to stake amount: 35");
+    wallet_mine_atleast_n_blocks(&wallet, 1);
+
+    wallet_refresh(&wallet);
+    EXPECT(result, wallet_stake(&wallet, &snode_key, 20), "Wallet failed to stake amount: 20");
+    wallet_mine_atleast_n_blocks(&wallet, 1);
+
+    wallet_refresh(&wallet);
+    EXPECT(result, wallet_stake(&wallet, &snode_key, 25), "Wallet failed to stake amount: 25");
+    wallet_mine_atleast_n_blocks(&wallet, 1);
+  }
+
+  daemon_snode_status status = daemon_print_sn_status(&daemon);
+  EXPECT(result, status.registered, "Service node was not successfully registered");
   return result;
 }
 

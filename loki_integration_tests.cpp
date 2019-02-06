@@ -488,7 +488,7 @@ int main(int, char **)
   int results_index = 0;
 
 #define RUN_TEST(test_function) \
-  fprintf(stdout, "[%03d] " #test_function, results_index + 1); \
+  fprintf(stdout, "%03d " #test_function, results_index + 1); \
   fflush(stdout); \
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
@@ -512,6 +512,7 @@ int main(int, char **)
   RUN_TEST(latest__request_stake_unlock__disallow_request_on_non_existent_node);
   RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
 
+  RUN_TEST(latest__stake__allow_incremental_stakes_with_1_contributor);
   RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
   RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
   RUN_TEST(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
@@ -535,7 +536,7 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(latest__request_stake_unlock__disallow_request_on_non_existent_node);
+  RUN_TEST(latest__stake__allow_incremental_stakes_with_1_contributor);
 #endif
 
   int num_tests_passed = 0;

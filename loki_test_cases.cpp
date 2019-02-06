@@ -51,7 +51,7 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
 
 void print_test_results(test_result const *test)
 {
-  int const TARGET_LEN = 74;
+  int const TARGET_LEN = 76;
 
   if (test->failed)
   {
@@ -478,7 +478,7 @@ test_result latest__register_service_node__disallow_register_twice()
   loki_addr my_addr = {};
   {
     wallet_address(&wallet, 0, &my_addr);
-    wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
+    wallet_mine_until_height(&wallet, 100, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
   }
 
   // Register the service node

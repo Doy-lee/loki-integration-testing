@@ -20,20 +20,13 @@ enum struct terminal_type_t
 };
 
 #define XTERM_CMD 1
-#define KEEP_TERMINAL_OPEN 0
-
-#if KEEP_TERMINAL_OPEN
-    #define SHOULD_PERSIST_TERMINAL "bash"
-#else
-    #define SHOULD_PERSIST_TERMINAL ""
-#endif
 
 #if LXTERMINAL_CMD
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/lokid %s; "           SHOULD_PERSIST_TERMINAL "\"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; " SHOULD_PERSIST_TERMINAL "\"";
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
 #elif XTERM_CMD
-char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/lokid %s; "           SHOULD_PERSIST_TERMINAL "\"";
-char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; " SHOULD_PERSIST_TERMINAL "\"";
+char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
 #endif
 
 struct state_t
@@ -223,10 +216,12 @@ void itest_read_stdout_for_ms(in_out_shared_mem *shared_mem, int time_ms)
 }
 
 char const DAEMON_SHARED_MEM_NAME[] = "loki_integration_testing_daemon";
-void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params)
+void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params)
 {
+  LOKI_ASSERT(num_params == num_daemons || num_params == 1);
   for (int curr_daemon_index = 0; curr_daemon_index < num_daemons; ++curr_daemon_index)
   {
+    start_daemon_params param = (num_params == 1) ? params[0] : params[curr_daemon_index];
     daemon_t *curr_daemon = daemons + curr_daemon_index;
 
     loki_scratch_buf arg_buf = {};
@@ -238,31 +233,31 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
     if (num_daemons == 1)
       arg_buf.append("--offline ");
 
-    if (params.service_node)
+    if (param.service_node)
       arg_buf.append("--service-node ");
 
-    if (params.fixed_difficulty > 0)
-      arg_buf.append("--fixed-difficulty %d ", params.fixed_difficulty);
+    if (param.fixed_difficulty > 0)
+      arg_buf.append("--fixed-difficulty %d ", param.fixed_difficulty);
 
 
-    if (params.num_hardforks > 0)
+    if (param.num_hardforks > 0)
     {
       arg_buf.append("--integration-test-hardforks-override \\\"");
-      for (int i = 0; i < params.num_hardforks; ++i)
+      for (int i = 0; i < param.num_hardforks; ++i)
       {
-        loki_hardfork hardfork = params.hardforks[i];
+        loki_hardfork hardfork = param.hardforks[i];
         arg_buf.append("%d:%d", hardfork.version, hardfork.height);
-        if (i != (params.num_hardforks - 1)) arg_buf.append(", ");
+        if (i != (param.num_hardforks - 1)) arg_buf.append(", ");
       }
 
       arg_buf.append("\\\" ");
-      LOKI_ASSERT(params.nettype == loki_nettype::fakenet);
+      LOKI_ASSERT(param.nettype == loki_nettype::fakenet);
     }
     else
     {
-      if (params.nettype == loki_nettype::testnet)
+      if (param.nettype == loki_nettype::testnet)
         arg_buf.append("--testnet ");
-      else if (params.nettype == loki_nettype::stagenet)
+      else if (param.nettype == loki_nettype::stagenet)
         arg_buf.append("--stagnet ");
     }
 
@@ -284,7 +279,10 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
       // continue;
     }
 
-    loki_scratch_buf cmd_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data);
+    loki_scratch_buf cmd_buf = {};
+    if (param.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data, "bash");
+    else                          cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data, "");
+
     curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
     daemon_status(curr_daemon);
   }
@@ -296,7 +294,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params params
 daemon_t create_and_start_daemon(start_daemon_params params)
 {
   daemon_t result = create_daemon();
-  start_daemon(&result, 1, params);
+  start_daemon(&result, 1, &params, 1);
   return result;
 }
 
@@ -304,7 +302,16 @@ void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_da
 {
   for (int i = 0; i < num_daemons; ++i)
     daemons[i] = create_daemon();
-  start_daemon(daemons, num_daemons, params);
+  start_daemon(daemons, num_daemons, &params, 1);
+}
+
+void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params)
+{
+  LOKI_ASSERT(num_params == num_daemons || num_params == 1);
+
+  for (int i = 0; i < num_daemons; ++i)
+    daemons[i] = create_daemon();
+  start_daemon(daemons, num_daemons, params, num_params);
 }
 
 wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
@@ -365,7 +372,7 @@ wallet_t create_wallet(loki_nettype nettype)
   result.shared_mem = setup_shared_mem(WALLET_SHARED_MEM_NAME, result.id);
   itest_reset_shared_memory(&result.shared_mem);
 
-  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data);
+  loki_scratch_buf cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data, "");
   os_launch_process(cmd_buf.data);
   itest_read_stdout_until(&result.shared_mem, "Wallet data saved");
   return result;
@@ -396,7 +403,9 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
   itest_reset_shared_memory(&wallet->shared_mem);
 
 #if 1
-  loki_scratch_buf cmd_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data);
+  loki_scratch_buf cmd_buf = {};
+  if (params.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data, "bash");
+  else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data, "");
   wallet->proc_handle = os_launch_process(cmd_buf.data);
 
   itest_read_possible_value const possible_values[] =

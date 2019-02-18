@@ -221,6 +221,7 @@ test_result latest__prepare_registration__check_solo_stake()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
+  daemon_params.keep_terminal_open = true;
 
   daemon_t daemon = create_and_start_daemon(daemon_params);
   LOKI_DEFER { daemon_exit(&daemon); };
@@ -775,28 +776,33 @@ test_result latest__service_node_checkpointing()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  loki_snode_key snode_keys[10] = {};
-  daemon_t daemons[10]          = {};
+  int const NUM_DAEMONS = 10;
+  loki_snode_key snode_keys[NUM_DAEMONS] = {};
+  daemon_t daemons[NUM_DAEMONS]          = {};
   wallet_t wallet              = {};
   LOKI_DEFER
   {
     wallet_exit(&wallet);
-    LOKI_FOR_EACH(daemon_index, LOKI_ARRAY_COUNT(daemons))
+    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
       daemon_exit(daemons + daemon_index);
   };
 
   // Start up daemon and wallet
   {
-    start_daemon_params daemon_params = {};
-    daemon_params.load_latest_hardfork_versions();
+    start_daemon_params daemon_params[NUM_DAEMONS]  = {};
+    LOKI_FOR_EACH(i, NUM_DAEMONS)
+    {
+      if (i == 0) daemon_params[i].keep_terminal_open = true;
+      daemon_params[i].load_latest_hardfork_versions();
+    }
 
-    create_and_start_multi_daemons(daemons, LOKI_ARRAY_COUNT(daemons), daemon_params);
-    LOKI_FOR_EACH(daemon_index, LOKI_ARRAY_COUNT(daemons))
+    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS);
+    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
       EXPECT(result, daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = daemons + 0;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet                            = create_and_start_wallet(daemon_params[0].nettype, wallet_params);
     wallet_set_default_testing_settings(&wallet);
   }
 
@@ -805,7 +811,7 @@ test_result latest__service_node_checkpointing()
   EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
 
   // Register the service node
-  LOKI_FOR_EACH(daemon_index, LOKI_ARRAY_COUNT(daemons))
+  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
   {
     daemon_prepare_registration_params params             = {};
     params.contributors[params.num_contributors].addr     = my_addr;
@@ -817,7 +823,7 @@ test_result latest__service_node_checkpointing()
   }
 
   // Mine registration and become service nodes and mine some blocks to create checkpoints
-  wallet_mine_atleast_n_blocks(&wallet, 100);
+  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
   daemon_print_checkpoints(daemons + 0);
 
   return result;

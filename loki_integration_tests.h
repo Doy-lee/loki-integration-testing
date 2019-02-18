@@ -250,6 +250,7 @@ struct start_daemon_params
   loki_hardfork hardforks[16];        // If hardforks are specified, we run in mainnet/fakechain mode
   int           num_hardforks;
   loki_nettype  nettype          = loki_nettype::testnet;
+  bool          keep_terminal_open;
 
   void add_hardfork                          (int version, int height); // TODO: Sets daemon mode to fakechain sadly, can't keep testnet. We should fix this
   void add_sequential_hardforks_until_version(int version);
@@ -260,14 +261,16 @@ struct start_wallet_params
 {
   daemon_t *daemon                          = nullptr;
   bool      allow_mismatched_daemon_version = false;
+  bool      keep_terminal_open;
 };
 
 wallet_t create_wallet                 (loki_nettype type);
 daemon_t create_daemon                 ();
 void     start_wallet                  (wallet_t *wallet, start_wallet_params params = {});
-void     start_daemon                  (daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {});
+void     start_daemon                  (daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {}, int num_params = 1);
 daemon_t create_and_start_daemon       (start_daemon_params params = {});
 void     create_and_start_multi_daemons(daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {});
+void     create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params);
 
 // TODO(doyle): The create and start wallet function launches the wallet
 // separately to create on the commandline and immediately exits. Then launches

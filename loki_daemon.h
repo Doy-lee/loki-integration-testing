@@ -31,6 +31,7 @@ struct daemon_snode_status
 
 void                daemon_exit                (daemon_t *daemon);
 bool                daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
+void                daemon_print_checkpoints   (daemon_t *daemon);
 uint64_t            daemon_print_height        (daemon_t *daemon);
 daemon_snode_status daemon_print_sn            (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
 bool                daemon_print_sn_key        (daemon_t *daemon, loki_snode_key *key);
@@ -57,6 +58,11 @@ void daemon_exit(daemon_t *daemon)
 {
   itest_write_to_stdin(&daemon->shared_mem, "exit");
   daemon->shared_mem.clean_up();
+}
+
+void daemon_print_checkpoints(daemon_t *daemon)
+{
+  itest_write_then_read_stdout(&daemon->shared_mem, "print_checkpoints");
 }
 
 uint64_t daemon_print_height(daemon_t *daemon)

@@ -770,6 +770,59 @@ test_result latest__request_stake_unlock__disallow_request_twice()
   return result;
 }
 
+test_result latest__service_node_checkpointing()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  loki_snode_key snode_keys[10] = {};
+  daemon_t daemons[10]          = {};
+  wallet_t wallet              = {};
+  LOKI_DEFER
+  {
+    wallet_exit(&wallet);
+    LOKI_FOR_EACH(daemon_index, LOKI_ARRAY_COUNT(daemons))
+      daemon_exit(daemons + daemon_index);
+  };
+
+  // Start up daemon and wallet
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+
+    create_and_start_multi_daemons(daemons, LOKI_ARRAY_COUNT(daemons), daemon_params);
+    LOKI_FOR_EACH(daemon_index, LOKI_ARRAY_COUNT(daemons))
+      EXPECT(result, daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = daemons + 0;
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+  }
+
+  loki_addr my_addr = {};
+  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+
+  // Register the service node
+  LOKI_FOR_EACH(daemon_index, LOKI_ARRAY_COUNT(daemons))
+  {
+    daemon_prepare_registration_params params             = {};
+    params.contributors[params.num_contributors].addr     = my_addr;
+    params.contributors[params.num_contributors++].amount = 100;
+
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration (daemons + daemon_index, &params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+  }
+
+  // Mine registration and become service nodes and mine some blocks to create checkpoints
+  wallet_mine_atleast_n_blocks(&wallet, 100);
+  daemon_print_checkpoints(daemons + 0);
+
+  return result;
+}
+
 test_result latest__stake__allow_incremental_stakes_with_1_contributor()
 {
   test_result result = {};

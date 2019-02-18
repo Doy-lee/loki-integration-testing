@@ -40,6 +40,8 @@ test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node();
 test_result latest__stake__disallow_staking_when_all_amounts_reserved();
 test_result latest__stake__disallow_to_non_registered_node();
 
+test_result latest__service_node_checkpointing();
+
 test_result latest__transfer__check_fee_amount_bulletproofs();
 
 //

@@ -396,16 +396,18 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_transaction *tx)
 {
   loki_buffer<256> cmd("transfer %s %zu", dest, amount);
-  itest_read_result output = itest_write_then_read_stdout(&wallet->shared_mem, cmd.c_str);
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, LOKI_STR_LIT("Is this okay?"));
 
+  // NOTE: Payment ID deprecated
+#if 0
   // NOTE: No payment ID requested if sending to subaddress
   bool requested_payment_id = str_find(output.buf.c_str, "No payment id is included with this transaction. Is this okay?");
   if (requested_payment_id)
   {
     // Confirm no payment id
     output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("Is this okay?"));
-
   }
+#endif
 
   // Example:
   // Transaction 1/1:

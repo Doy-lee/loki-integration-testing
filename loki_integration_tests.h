@@ -141,6 +141,7 @@ void              itest_write_to_stdin              (in_out_shared_mem *shared_m
 itest_read_result itest_write_then_read_stdout      (in_out_shared_mem *shared_mem, char const *cmd);
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit                     find_str);
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int possible_values_len);
+void              itest_read_stdout_sink            (in_out_shared_mem *shared_mem, int milliseconds);
 itest_read_result itest_read_stdout                 (in_out_shared_mem *shared_mem);
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, char const *find_str);
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len);

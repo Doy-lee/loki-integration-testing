@@ -176,6 +176,34 @@ itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, char co
   return result;
 }
 
+void itest_read_stdout_sink(in_out_shared_mem *shared_mem, int milliseconds)
+{
+  int time_remaining = LOKI_MS_TO_SECONDS(milliseconds);
+
+  timespec time = {};
+  if (clock_gettime(CLOCK_REALTIME, &time) == -1)
+    LOKI_ASSERT(false);
+
+  time.tv_sec += time_remaining;
+  for (; time_remaining > 0;)
+  {
+    int sem_value = 0;
+    sem_getvalue(shared_mem->stdout_semaphore_handle, &sem_value);
+    if (sem_timedwait(shared_mem->stdout_semaphore_handle, &time) == -1)
+    {
+      if (errno == ETIMEDOUT)
+        break;
+    }
+
+    timespec time_after = {};
+    if (clock_gettime(CLOCK_REALTIME, &time_after) == -1)
+      LOKI_ASSERT(false);
+
+    time_remaining -= time_after.tv_sec - time.tv_sec;
+    sem_post(shared_mem->stdout_ready_semaphore_handle);
+  }
+}
+
 itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len)
 {
   for (;;)
@@ -238,6 +266,8 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
 
     if (param.fixed_difficulty > 0)
       arg_buf.append("--fixed-difficulty %d ", param.fixed_difficulty);
+
+    arg_buf.append("--log-level 1 ");
 
 
     if (param.num_hardforks > 0)
@@ -521,7 +551,8 @@ int main(int, char **)
   RUN_TEST(latest__request_stake_unlock__disallow_request_on_non_existent_node);
   RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
 
-  RUN_TEST(latest__service_node_checkpointing);
+  // TODO(doyle): Complete
+  // RUN_TEST(latest__service_node_checkpointing);
 
   RUN_TEST(latest__stake__allow_incremental_stakes_with_1_contributor);
   RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
@@ -547,7 +578,26 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(latest__service_node_checkpointing);
+
+  // TODO(doyle): Complete test
+  // RUN_TEST(latest__service_node_checkpointing);
+
+  RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
+
+  //
+  // V10
+  //
+  RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
+  RUN_TEST(v10__register_service_node__check_grace_period);
+
+  RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
+  RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
+  RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
+
+  //
+  // V09
+  //
+  RUN_TEST(v09__transfer__check_fee_amount);
 #endif
 
   int num_tests_passed = 0;

@@ -62,7 +62,7 @@ void daemon_exit(daemon_t *daemon)
 
 void daemon_print_checkpoints(daemon_t *daemon)
 {
-  itest_write_then_read_stdout(&daemon->shared_mem, "print_checkpoints");
+  itest_write_then_read_stdout_until(&daemon->shared_mem, "print_checkpoints", LOKI_STR_LIT("Checkpoint"));
 }
 
 uint64_t daemon_print_height(daemon_t *daemon)

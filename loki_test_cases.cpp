@@ -221,7 +221,6 @@ test_result latest__prepare_registration__check_solo_stake()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  daemon_params.keep_terminal_open = true;
 
   daemon_t daemon = create_and_start_daemon(daemon_params);
   LOKI_DEFER { daemon_exit(&daemon); };
@@ -824,7 +823,14 @@ test_result latest__service_node_checkpointing()
 
   // Mine registration and become service nodes and mine some blocks to create checkpoints
   wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+  daemon_status(daemons + 0);
   daemon_print_checkpoints(daemons + 0);
+
+  for (;;)
+  {
+    itest_read_stdout_sink(&daemons[0].shared_mem, LOKI_SECONDS_TO_MS(8));
+    daemon_print_checkpoints(daemons + 0);
+  }
 
   return result;
 }

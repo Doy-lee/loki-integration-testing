@@ -246,12 +246,13 @@ struct wallet_t
 
 struct start_daemon_params
 {
-  int           fixed_difficulty = 1; // Set to 0 to disable
-  bool          service_node     = true;
-  loki_hardfork hardforks[16];        // If hardforks are specified, we run in mainnet/fakechain mode
-  int           num_hardforks;
-  loki_nettype  nettype          = loki_nettype::testnet;
-  bool          keep_terminal_open;
+  int               fixed_difficulty = 1; // Set to 0 to disable
+  bool              service_node     = true;
+  loki_hardfork     hardforks[16];        // If hardforks are specified, we run in mainnet/fakechain mode
+  int               num_hardforks;
+  loki_nettype      nettype          = loki_nettype::testnet;
+  bool              keep_terminal_open;
+  loki_buffer<1024> custom_cmd_line;
 
   void add_hardfork                          (int version, int height); // TODO: Sets daemon mode to fakechain sadly, can't keep testnet. We should fix this
   void add_sequential_hardforks_until_version(int version);

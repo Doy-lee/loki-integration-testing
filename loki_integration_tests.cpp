@@ -253,6 +253,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     daemon_t *curr_daemon = daemons + curr_daemon_index;
 
     loki_scratch_buf arg_buf = {};
+    arg_buf.append("%s ",                            param.custom_cmd_line.c_str);
     arg_buf.append("--p2p-bind-port %d ",            curr_daemon->p2p_port);
     arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
@@ -266,9 +267,6 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
 
     if (param.fixed_difficulty > 0)
       arg_buf.append("--fixed-difficulty %d ", param.fixed_difficulty);
-
-    arg_buf.append("--log-level 1 ");
-
 
     if (param.num_hardforks > 0)
     {
@@ -581,23 +579,7 @@ int main(int, char **)
 
   // TODO(doyle): Complete test
   // RUN_TEST(latest__service_node_checkpointing);
-
-  RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
-
-  //
-  // V10
-  //
-  RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
-  RUN_TEST(v10__register_service_node__check_grace_period);
-
-  RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
-  RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
-  RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-
-  //
-  // V09
-  //
-  RUN_TEST(v09__transfer__check_fee_amount);
+  RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
 #endif
 
   int num_tests_passed = 0;

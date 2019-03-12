@@ -778,7 +778,7 @@ test_result latest__service_node_checkpointing()
   int const NUM_DAEMONS = 10;
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
-  wallet_t wallet              = {};
+  wallet_t wallet                        = {};
   LOKI_DEFER
   {
     wallet_exit(&wallet);
@@ -793,6 +793,7 @@ test_result latest__service_node_checkpointing()
     {
       if (i == 0) daemon_params[i].keep_terminal_open = true;
       daemon_params[i].load_latest_hardfork_versions();
+      daemon_params[i].custom_cmd_line = "";
     }
 
     create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS);

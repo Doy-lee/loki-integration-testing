@@ -518,7 +518,7 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
     {LOKI_STR_LIT("Unexpected 0 contributions in service node for this wallet "), true},
     {LOKI_STR_LIT("No service node is known for: "), true},
     {LOKI_STR_LIT("has already been requested to be unlocked, unlocking at height: "), true},
-    {LOKI_STR_LIT("Is this okay?"), false},
+    {LOKI_STR_LIT("You will continue receiving rewards until"), false},
   };
 
   loki_buffer<256> cmd("request_stake_unlock %s", snode_key->c_str);
@@ -527,7 +527,6 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
   if (unlock_height)
   {
     char const *expiring_str      = str_find(output.buf.c_str, "You will continue receiving rewards until the service node expires at the estimated height: ");
@@ -535,13 +534,14 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
     *unlock_height = static_cast<uint64_t>(atoi(unlock_height_str));
   }
 
+  itest_read_stdout_until(&wallet->shared_mem, "Is this okay?");
   itest_read_possible_value const possible_values2[] =
   {
     {LOKI_STR_LIT("Error: Reason: "), true},
     {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
   };
 
-  output = itest_read_stdout_until(&wallet->shared_mem, possible_values2, LOKI_ARRAY_COUNT(possible_values2));
+  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", possible_values2, LOKI_ARRAY_COUNT(possible_values2));
   return !possible_values2[output.matching_find_strs_index].is_fail_msg;
 }
 

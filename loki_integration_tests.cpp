@@ -530,7 +530,7 @@ int main(int, char **)
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
 
-#if 0
+#if 1
   //
   // Latest
   //
@@ -577,19 +577,11 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
-  RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
-  RUN_TEST(v10__register_service_node__check_grace_period);
-
   RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
   RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
   RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-
-
   // TODO(doyle): Complete test
   // RUN_TEST(latest__service_node_checkpointing);
-  RUN_TEST(latest__prepare_registration__check_70_20_split_10_open_for_contribution);
-  // RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
 #endif
 
   int num_tests_passed = 0;

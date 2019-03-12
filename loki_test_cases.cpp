@@ -93,6 +93,7 @@ test_result latest__deregistration__1_unresponsive_node()
   INITIALISE_TEST_CONTEXT(result);
 
   start_daemon_params daemon_params = {};
+  daemon_params.fixed_difficulty    = 2;
   daemon_params.load_latest_hardfork_versions();
 
   int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
@@ -534,6 +535,75 @@ test_result latest__register_service_node__allow_4_stakers()
   wallet_mine_atleast_n_blocks(owner, 1);
   daemon_snode_status node_status = daemon_print_sn_status(&daemon);
   EXPECT(result, node_status.registered, "Service node could not be registered");
+  return result;
+}
+
+test_result latest__register_service_node__allow_70_20_and_10_open_for_contribution()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+
+  daemon_t daemon           = create_and_start_daemon(daemon_params);
+  wallet_t  stakers[2]      = {};
+  loki_addr stakers_addr[2] = {};
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = &daemon;
+
+  // Mine and unlock funds
+  for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+  {
+    stakers[i]       = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_t *staker = stakers + i;
+
+    wallet_set_default_testing_settings(staker);
+    wallet_address(staker, 0, stakers_addr + i);
+    wallet_mine_atleast_n_blocks(staker, 2);
+  }
+
+  LOKI_DEFER
+  {
+    daemon_exit(&daemon);
+    for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+      wallet_exit(stakers + i);
+  };
+
+  wallet_t *owner = stakers + 0;
+  wallet_mine_atleast_n_blocks(owner, 100);
+
+  loki_snode_key snode_key = {};
+  daemon_print_sn_key(&daemon, &snode_key);
+
+  // Register the service node and put it on the chain
+  daemon_prepare_registration_params registration_params = {};
+  registration_params.open_pool        = true;
+  registration_params.num_contributors = (int)LOKI_ARRAY_COUNT(stakers);
+  {
+    registration_params.contributors[0].addr   = stakers_addr[0];
+    registration_params.contributors[0].amount = 70; // TODO(doyle): Assumes testnet staking requirement of 100
+    registration_params.contributors[1].addr   = stakers_addr[1];
+    registration_params.contributors[1].amount = 20; // TODO(doyle): Assumes testnet staking requirement of 100
+  }
+
+  loki_scratch_buf registration_cmd = {};
+  daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
+  EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+  wallet_mine_atleast_n_blocks(owner, 1, 100 /*mining_duration*/);
+
+  // Each person stakes their part to the wallet
+  for (int i = 1; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
+  {
+    wallet_t *staker = stakers + i;
+    loki_contributor const *contributor = registration_params.contributors + i;
+    LOKI_ASSERT(wallet_stake(staker, &snode_key, contributor->amount));
+  }
+
+  wallet_mine_atleast_n_blocks(owner, 1);
+  daemon_snode_status node_status = daemon_print_sn_status(&daemon);
+  EXPECT(result, !node_status.registered, "Service node should NOT be registered yet, should be 10 loki remaining");
   return result;
 }
 
@@ -1510,7 +1580,7 @@ test_result v10__register_service_node__check_grace_period()
   {
     int const STAKING_DURATION = 30; // TODO(doyle): Workaround for inability to print_sn_status and see the actual expiry
     daemon_status_t status     = daemon_status(&daemon);
-    wallet_mine_atleast_n_blocks(&wallet, STAKING_DURATION, 10/*mining_duration_in_ms*/);
+    wallet_mine_atleast_n_blocks(&wallet, STAKING_DURATION, 1/*mining_duration_in_ms*/);
 
     uint64_t wallet_height = wallet_status(&wallet);
     EXPECT(result, wallet_height < status.height + STAKING_DURATION,
@@ -1613,6 +1683,7 @@ test_result v10__stake__allow_insufficient_stake_w_reserved_contributor()
 
   // Put the registration onto the blockchain
   {
+    wallet_refresh(&wallet1);
     loki_scratch_buf registration_cmd                     = {};
     daemon_prepare_registration_params params             = {};
     params.open_pool                                      = true;
@@ -1623,7 +1694,7 @@ test_result v10__stake__allow_insufficient_stake_w_reserved_contributor()
     daemon_prepare_registration(&daemon, &params, &registration_cmd);
 
     wallet_register_service_node(&wallet1, registration_cmd.c_str);
-    wallet_mine_atleast_n_blocks(&wallet1, 1);
+    wallet_mine_atleast_n_blocks(&wallet1, 5);
 
     daemon_snode_status node_status = daemon_print_sn_status(&daemon);
     EXPECT(result, node_status.known_on_the_network, "Service node registration didn't make it into the blockchain?");

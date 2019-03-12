@@ -27,6 +27,7 @@ test_result latest__print_locked_stakes__check_no_locked_stakes();
 test_result latest__print_locked_stakes__check_shows_locked_stakes();
 
 test_result latest__register_service_node__allow_4_stakers();
+test_result latest__register_service_node__allow_70_20_and_10_open_for_contribution();
 test_result latest__register_service_node__disallow_register_twice();
 
 test_result latest__request_stake_unlock__check_pooled_stake_unlocked();

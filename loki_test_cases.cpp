@@ -225,6 +225,16 @@ test_result latest__prepare_registration__check_solo_stake()
   daemon_t daemon = create_and_start_daemon(daemon_params);
   LOKI_DEFER { daemon_exit(&daemon); };
 
+  // NOTE(loki): Mine enough to reach the latest fork
+  {
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+    wallet_mine_atleast_n_blocks(&wallet, 32, 500/*ms*/);
+    wallet_exit(&wallet);
+  }
+
   char const *wallet1 = LOKI_MAINNET_ADDR[0];
 
   daemon_prepare_registration_params registration_params = {};
@@ -261,6 +271,16 @@ test_result latest__prepare_registration__check_100_percent_operator_cut_stake()
   daemon_t daemon = create_and_start_daemon(daemon_params);
   LOKI_DEFER { daemon_exit(&daemon); };
 
+  // NOTE(loki): Mine enough to reach the latest fork
+  {
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+    wallet_mine_atleast_n_blocks(&wallet, 32, 500/*ms*/);
+    wallet_exit(&wallet);
+  }
+
   char const *wallet1 = LOKI_MAINNET_ADDR[0];
   char const *wallet2 = LOKI_MAINNET_ADDR[1];
 
@@ -292,6 +312,64 @@ test_result latest__prepare_registration__check_100_percent_operator_cut_stake()
   EXPECT_STR(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", register_str); // exactly 50% of staking portions
   EXPECT_STR(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", register_str);
   EXPECT_STR(result, wallet2_portions, "4611686018427387903",   "Could not find expected str in: ", register_str); // exactly 25% of staking portions
+
+  return result;
+}
+
+test_result latest__prepare_registration__check_70_20_split_10_open_for_contribution()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+
+  daemon_t daemon = create_and_start_daemon(daemon_params);
+  LOKI_DEFER { daemon_exit(&daemon); };
+
+  // NOTE(loki): Mine enough to reach the latest fork
+  {
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+    wallet_mine_atleast_n_blocks(&wallet, 32, 500/*ms*/);
+    wallet_exit(&wallet);
+  }
+
+  char const *wallet1 = LOKI_MAINNET_ADDR[0];
+  char const *wallet2 = LOKI_MAINNET_ADDR[1];
+
+  daemon_prepare_registration_params registration_params = {};
+  registration_params.num_contributors = 2;
+  registration_params.open_pool        = true;
+  registration_params.owner_fee_percent = 0;
+  registration_params.contributors[0].addr.set_normal_addr(wallet1);
+  registration_params.contributors[0].amount = 70; // TODO(doyle): Assumes testnet staking requirement of 100
+  registration_params.contributors[1].addr.set_normal_addr(wallet2);
+  registration_params.contributors[1].amount = 20; // TODO(doyle): Assumes testnet staking requirement of 100
+
+  loki_scratch_buf registration_cmd = {};
+  EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
+
+  // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
+  char const *register_str     = str_find(registration_cmd.c_str, "register_service_node");
+  char const *prev             = register_str;
+
+  char const *operator_cut     = str_skip_to_next_word(&prev);
+  char const *wallet1_addr     = str_skip_to_next_word(&prev);
+  char const *wallet1_portions = str_skip_to_next_word(&prev);
+  char const *wallet2_addr     = str_skip_to_next_word(&prev);
+  char const *wallet2_portions = str_skip_to_next_word(&prev);
+
+  // TODO(doyle): Validate the portions bits
+  (void)operator_cut;
+  (void)wallet1_portions;
+  (void)wallet2_portions;
+
+  EXPECT_STR(result, register_str,     "register_service_node", "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", register_str);
+  EXPECT_STR(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", register_str);
 
   return result;
 }

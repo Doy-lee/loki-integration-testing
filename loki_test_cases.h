@@ -19,6 +19,7 @@ test_result latest__deregistration__1_unresponsive_node();
 
 test_result latest__prepare_registration__check_solo_stake();
 test_result latest__prepare_registration__check_100_percent_operator_cut_stake();
+test_result latest__prepare_registration__check_70_20_split_10_open_for_contribution();
 
 // TODO(doyle): We don't have any tests for blacklisted key images, because
 // I haven't got node deregistration working reliably in integration tests

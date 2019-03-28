@@ -256,11 +256,14 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
   if (str_find(output.buf.c_str, "No service node is currently known on the network"))
     return result;
 
-  char const *registration_label        = str_find(output.buf.c_str, "Service Node Registration State");
+  result.known_on_the_network    = true;
+  char const *registration_label = str_find(output.buf.c_str, "Service Node Registration State");
+  if (!registration_label)
+    return result;
+
   char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
   int num_registered_snodes             = atoi(num_registered_snodes_str);
 
-  result.known_on_the_network = true;
   result.registered           = (num_registered_snodes == 1);
   return result;
 

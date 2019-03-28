@@ -532,17 +532,23 @@ int main(int, char **)
 
 #if 1
   //
-  // Latest
+  // NOTE: Latest
   //
   // RUN_TEST(latest__deregistration__1_unresponsive_node);
   RUN_TEST(latest__prepare_registration__check_solo_stake);
+  RUN_TEST(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
   RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
-  RUN_TEST(latest__prepare_registration__check_70_20_split_10_open_for_contribution);
 
   RUN_TEST(latest__print_locked_stakes__check_no_locked_stakes);
   RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
 
   RUN_TEST(latest__register_service_node__allow_4_stakers);
+
+  RUN_TEST(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
+  RUN_TEST(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
+  RUN_TEST(latest__register_service_node__allow_87_13_reserved_contribution);
+  RUN_TEST(latest__register_service_node__allow_87_13_contribution);
+
   RUN_TEST(latest__register_service_node__disallow_register_twice);
 
   RUN_TEST(latest__request_stake_unlock__check_pooled_stake_unlocked);
@@ -565,6 +571,7 @@ int main(int, char **)
   //
   // V10
   //
+  RUN_TEST(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
   RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
   RUN_TEST(v10__register_service_node__check_grace_period);
 
@@ -577,11 +584,12 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
+  RUN_TEST(v10__register_service_node__check_grace_period);
+
   RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
   RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
   RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  // TODO(doyle): Complete test
-  // RUN_TEST(latest__service_node_checkpointing);
+  // RUN_TEST(latest__service_node_checkpointing); TODO(doyle): Complete test
 #endif
 
   int num_tests_passed = 0;

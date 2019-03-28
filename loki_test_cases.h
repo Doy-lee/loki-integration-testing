@@ -18,8 +18,8 @@ void        print_test_results(test_result const *results);
 test_result latest__deregistration__1_unresponsive_node();
 
 test_result latest__prepare_registration__check_solo_stake();
+test_result latest__prepare_registration__check_all_solo_stake_forms_valid_registration();
 test_result latest__prepare_registration__check_100_percent_operator_cut_stake();
-test_result latest__prepare_registration__check_70_20_split_10_open_for_contribution();
 
 // TODO(doyle): We don't have any tests for blacklisted key images, because
 // I haven't got node deregistration working reliably in integration tests
@@ -28,6 +28,9 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes();
 
 test_result latest__register_service_node__allow_4_stakers();
 test_result latest__register_service_node__allow_70_20_and_10_open_for_contribution();
+test_result latest__register_service_node__allow_43_23_13_21_reserved_contribution();
+test_result latest__register_service_node__allow_87_13_reserved_contribution();
+test_result latest__register_service_node__allow_87_13_contribution();
 test_result latest__register_service_node__disallow_register_twice();
 
 test_result latest__request_stake_unlock__check_pooled_stake_unlocked();
@@ -49,7 +52,7 @@ test_result latest__transfer__check_fee_amount_bulletproofs();
 //
 // V10
 //
-
+test_result v10__prepare_registration__check_all_solo_stake_forms_valid_registration();
 test_result v10__register_service_node__check_gets_payed_expires_and_returns_funds();
 test_result v10__register_service_node__check_grace_period();
 

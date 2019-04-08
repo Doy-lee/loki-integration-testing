@@ -52,6 +52,8 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
 void print_test_results(test_result const *test)
 {
   int const TARGET_LEN = 76;
+  loki_scratch_buf buf = {};
+  buf.append("%s ", test->name.c_str);
 
   if (test->failed)
   {
@@ -59,9 +61,9 @@ void print_test_results(test_result const *test)
     int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
     int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
 
-    for (int i = 0; i < remaining_len; ++i) fputc('.', stdout);
-    fprintf(stdout, LOKI_ANSI_COLOR_RED "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
-    fprintf(stdout, "  Message: %s\n\n", test->fail_msg.c_str);
+    for (int i = 0; i < remaining_len; ++i) buf.append(".");
+    buf.append(LOKI_ANSI_COLOR_RED "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
+    buf.append("  Message: %s\n\n", test->fail_msg.c_str);
   }
   else
   {
@@ -69,9 +71,11 @@ void print_test_results(test_result const *test)
     int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
     int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
 
-    for (int i = 0; i < remaining_len; ++i) fputc('.', stdout);
-    fprintf(stdout, LOKI_ANSI_COLOR_GREEN "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
+    for (int i = 0; i < remaining_len; ++i) buf.append(".");
+    buf.append(LOKI_ANSI_COLOR_GREEN "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
   }
+
+  fprintf(stdout, "%s", buf.c_str);
 }
 
 struct loki_err_context
@@ -151,7 +155,6 @@ test_result latest__deregistration__n_unresponsive_node()
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
 
-  daemon_t       *register_daemons       = daemons;
   daemon_t       *deregister_daemons     = daemons + LOKI_QUORUM_SIZE;
   loki_snode_key *register_snode_keys    = snode_keys;
   loki_snode_key *deregister_snode_keys  = snode_keys + LOKI_QUORUM_SIZE;
@@ -445,12 +448,10 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon_params.keep_terminal_open  = true;
     daemon                            = create_and_start_daemon(daemon_params);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet_params.keep_terminal_open  = true;
     wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
     wallet_set_default_testing_settings(&wallet);
   }

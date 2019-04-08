@@ -29,13 +29,14 @@ char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d\" -e bash -c \"/home/do
 char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
 #endif
 
+#include <atomic>
 struct state_t
 {
-    int num_wallets   = 0;
-    int num_daemons   = 0;
-    int free_p2p_port = 1111;
-    int free_rpc_port = 2222;
-    int free_zmq_port = 3333;
+  std::atomic<int> num_wallets   = 0;
+  std::atomic<int> num_daemons   = 0;
+  std::atomic<int> free_p2p_port = 1111;
+  std::atomic<int> free_rpc_port = 2222;
+  std::atomic<int> free_zmq_port = 3333;
 };
 
 static state_t global_state;
@@ -455,20 +456,43 @@ void itest_reset_shared_memory(in_out_shared_mem *shared_mem)
 }
 
 #include <iostream>
+#include <vector>
+#include <thread>
+
+typedef test_result(itest_scenario)(void);
+struct work_queue
+{
+  std::atomic<size_t>           job_index;
+  std::vector<itest_scenario *> jobs;
+  std::atomic<size_t>           num_jobs_succeeded;
+};
+
+static work_queue global_work_queue;
+void thread_to_task_dispatcher()
+{
+  for (;;)
+  {
+    size_t selected_job_index = global_work_queue.job_index.load();
+    if (selected_job_index >= global_work_queue.jobs.size())
+      break;
+
+    size_t next_job_index = selected_job_index + 1;
+    if (global_work_queue.job_index.compare_exchange_strong(selected_job_index,
+                                                            next_job_index,
+                                                            std::memory_order_acq_rel))
+    {
+      itest_scenario *run_scenario = global_work_queue.jobs[selected_job_index];
+      test_result result = run_scenario();
+      print_test_results(&result);
+
+      if (!result.failed)
+        global_work_queue.num_jobs_succeeded++;
+    }
+  }
+}
+
 int main(int, char **)
 {
-  printf("\n");
-#if 0
-  itest_reset_shared_memory();
-  daemon_t daemon = create_and_start_daemon();
-  std::string line;
-  for (;;line.clear())
-  {
-    std::getline(std::cin, line);
-    loki_scratch_buf result = itest_write_to_stdin_and_get_result(itest_shared_mem_type::daemon, line.c_str(), line.size());
-    printf("%s\n", result.data);
-  }
-#else
   // TODO(doyle):
   //  - locked transfers unlock after the locked time
   //  - show_transfers distinguishes payments
@@ -487,84 +511,63 @@ int main(int, char **)
     os_file_dir_make("./output");
   }
 
-  test_result results[128];
-  int results_index = 0;
+  printf("\n");
+  bool const MULTITHREAD = true;
+  if (MULTITHREAD)
+  {
+    global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+    global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
+    global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
+    global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
+    global_work_queue.jobs.push_back(latest__print_locked_stakes__check_no_locked_stakes);
+    global_work_queue.jobs.push_back(latest__print_locked_stakes__check_shows_locked_stakes);
+    global_work_queue.jobs.push_back(latest__register_service_node__allow_4_stakers);
+    global_work_queue.jobs.push_back(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
+    global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
+    global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
+    global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_contribution);
+    global_work_queue.jobs.push_back(latest__register_service_node__check_unlock_time_is_0);
+    global_work_queue.jobs.push_back(latest__register_service_node__disallow_register_twice);
+    global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
+    global_work_queue.jobs.push_back(latest__request_stake_unlock__check_unlock_height);
+    global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_on_non_existent_node);
+    global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_twice);
+    global_work_queue.jobs.push_back(latest__stake__allow_incremental_stakes_with_1_contributor);
+    global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
+    global_work_queue.jobs.push_back(latest__stake__check_transfer_doesnt_used_locked_key_images);
+    global_work_queue.jobs.push_back(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
+    global_work_queue.jobs.push_back(latest__stake__disallow_staking_when_all_amounts_reserved);
+    global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
+    global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_bulletproofs);
+    global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
+    global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
+    global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
+    global_work_queue.jobs.push_back(v10__stake__allow_incremental_staking_until_node_active);
+    global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
+    global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
+    global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 
+    std::thread threads[16];
+    for (size_t i = 0; i < LOKI_ARRAY_COUNT(threads); ++i)
+      threads[i] = std::thread(thread_to_task_dispatcher);
+
+    for (size_t i = 0; i < LOKI_ARRAY_COUNT(threads); ++i)
+      threads[i].join();
+
+    printf("\nTests passed %zu/%zu\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size());
+  }
+  else
+  {
 #define RUN_TEST(test_function) \
-  fprintf(stdout, "%03d " #test_function, results_index + 1); \
+  fprintf(stdout, "%03zu " #test_function, results_index + 1); \
   fflush(stdout); \
   results[results_index++] = test_function(); \
   print_test_results(&results[results_index-1])
 
-#if 1
-  //
-  // NOTE: Latest
-  //
-
-  RUN_TEST(latest__deregistration__1_unresponsive_node);
-
-  RUN_TEST(latest__prepare_registration__check_solo_stake);
-  RUN_TEST(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
-  RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
-
-  RUN_TEST(latest__print_locked_stakes__check_no_locked_stakes);
-  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
-
-  RUN_TEST(latest__register_service_node__allow_4_stakers);
-
-  RUN_TEST(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
-  RUN_TEST(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
-  RUN_TEST(latest__register_service_node__allow_87_13_reserved_contribution);
-  RUN_TEST(latest__register_service_node__allow_87_13_contribution);
-  RUN_TEST(latest__register_service_node__check_unlock_time_is_0);
-
-  RUN_TEST(latest__register_service_node__disallow_register_twice);
-
-  RUN_TEST(latest__request_stake_unlock__check_pooled_stake_unlocked);
-  RUN_TEST(latest__request_stake_unlock__check_unlock_height);
-  RUN_TEST(latest__request_stake_unlock__disallow_request_on_non_existent_node);
-  RUN_TEST(latest__request_stake_unlock__disallow_request_twice);
-
-  // TODO(doyle): Complete
-  // RUN_TEST(latest__service_node_checkpointing);
-
-  RUN_TEST(latest__stake__allow_incremental_stakes_with_1_contributor);
-  RUN_TEST(latest__stake__check_incremental_stakes_decreasing_min_contribution);
-  RUN_TEST(latest__stake__check_transfer_doesnt_used_locked_key_images);
-  RUN_TEST(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
-  RUN_TEST(latest__stake__disallow_staking_when_all_amounts_reserved);
-  RUN_TEST(latest__stake__disallow_to_non_registered_node);
-
-  RUN_TEST(latest__transfer__check_fee_amount_bulletproofs);
-
-  //
-  // V10
-  //
-  RUN_TEST(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
-  RUN_TEST(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
-  RUN_TEST(v10__register_service_node__check_grace_period);
-
-  RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
-  RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
-  RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-
-  //
-  // V09
-  //
-  RUN_TEST(v09__transfer__check_fee_amount);
-#else
-  RUN_TEST(latest__deregistration__1_unresponsive_node);
-  // RUN_TEST(latest__register_service_node__check_unlock_time_is_0);
-  // RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
-  // RUN_TEST(latest__service_node_checkpointing); TODO(doyle): Complete test
-#endif
-
-  int num_tests_passed = 0;
-  for (int i = 0; i < results_index; ++i)
-    num_tests_passed += static_cast<int>(!results[i].failed);
-
-  printf("\nTests passed %d/%d\n\n", num_tests_passed, results_index);
-#endif
+    test_result results[128] = {};
+    size_t results_index     = 0;
+    RUN_TEST(latest__prepare_registration__check_solo_stake);
+  }
 
   return 0;
 }

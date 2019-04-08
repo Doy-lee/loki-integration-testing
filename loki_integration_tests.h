@@ -68,7 +68,16 @@ struct loki_buffer
 {
   loki_buffer() : len(0) { data[0] = 0; }
   loki_buffer(char const *fmt, ...)     { va_list va; va_start(va, fmt); len =  stbsp_vsnprintf(data, MAX, fmt, va);                  va_end(va); LOKI_ASSERT(len   < MAX); }
-  void append(char const *fmt, ...)     { va_list va; va_start(va, fmt); int extra = stbsp_vsnprintf(data + len, MAX - len, fmt, va); va_end(va); LOKI_ASSERT(extra < MAX - len); len += extra; }
+
+  void append(char const *fmt, ...)
+  {
+    va_list va;
+    va_start(va, fmt);
+    int extra = stbsp_vsnprintf(data + len, MAX - len, fmt, va);
+    va_end(va);
+    LOKI_ASSERT(extra < MAX - len);
+    len += extra;
+  }
 
   void clear() { len = 0; data[0] = 0; }
   int  max()   { return MAX; };

@@ -551,10 +551,10 @@ int main(int, char **)
     std::vector<std::thread> threads;
     threads.reserve(num_threads);
 
-    for (size_t i = 0; i < LOKI_ARRAY_COUNT(threads); ++i)
-      threads[i] = std::thread(thread_to_task_dispatcher);
+    for (int i = 0; i < num_threads; ++i)
+      threads.push_back(std::thread(thread_to_task_dispatcher));
 
-    for (size_t i = 0; i < LOKI_ARRAY_COUNT(threads); ++i)
+    for (int i = 0; i < num_threads; ++i)
       threads[i].join();
 
     printf("\nTests passed %zu/%zu (using %d threads)\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size(), num_threads);

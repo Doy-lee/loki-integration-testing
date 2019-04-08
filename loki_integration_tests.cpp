@@ -547,14 +547,17 @@ int main(int, char **)
     global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
     global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 
-    std::thread threads[16];
+    int const num_threads = (int)std::thread::hardware_concurrency();
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+
     for (size_t i = 0; i < LOKI_ARRAY_COUNT(threads); ++i)
       threads[i] = std::thread(thread_to_task_dispatcher);
 
     for (size_t i = 0; i < LOKI_ARRAY_COUNT(threads); ++i)
       threads[i].join();
 
-    printf("\nTests passed %zu/%zu\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size());
+    printf("\nTests passed %zu/%zu (using %d threads)\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size(), num_threads);
   }
   else
   {

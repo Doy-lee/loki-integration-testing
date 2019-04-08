@@ -86,6 +86,32 @@ struct loki_err_context
 //
 // Latest Tests
 //
+test_result foo()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  daemon_t daemon = {};
+  wallet_t wallet = {};
+  LOKI_DEFER { wallet_exit(&wallet); daemon_exit(&daemon); };
+
+  // Start up daemon and wallet
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    daemon                            = create_and_start_daemon(daemon_params);
+    daemon_params.keep_terminal_open  = true;
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = &daemon;
+    wallet_params.keep_terminal_open  = true;
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
+    wallet_set_default_testing_settings(&wallet);
+  }
+
+  wallet_mine_until_height_new(&wallet, &daemon, 100);
+  return result;
+}
 
 test_result latest__deregistration__1_unresponsive_node()
 {
@@ -406,10 +432,12 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
+    daemon_params.keep_terminal_open  = true;
     daemon                            = create_and_start_daemon(daemon_params);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
+    wallet_params.keep_terminal_open  = true;
     wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params);
     wallet_set_default_testing_settings(&wallet);
   }
@@ -801,8 +829,8 @@ test_result latest__register_service_node__allow_87_13_reserved_contribution()
 
     uint64_t amount = stake->locked_amounts[0];
     uint64_t expected_amount = 0;
-    if      (i == 0) expected_amount = 83;
-    else if (i == 1) expected_amount = 17;
+    if      (i == 0) expected_amount = 87;
+    else if (i == 1) expected_amount = 13;
 
     EXPECT(result, stake->total_locked_amount == expected_amount * LOKI_ATOMIC_UNITS, "total locked amount: %zu didn't match expected: %zu", stake->total_locked_amount, expected_amount * LOKI_ATOMIC_UNITS);
     EXPECT(result, amount == expected_amount * LOKI_ATOMIC_UNITS,
@@ -864,7 +892,7 @@ test_result latest__register_service_node__allow_87_13_contribution()
     daemon_prepare_registration_params params             = {};
     params.open_pool                                      = true;
     params.contributors[params.num_contributors].addr     = wallet_addrs[0];
-    params.contributors[params.num_contributors++].amount = 83;
+    params.contributors[params.num_contributors++].amount = 87;
 
     loki_scratch_buf registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "failed to prepare registration");
@@ -875,7 +903,7 @@ test_result latest__register_service_node__allow_87_13_contribution()
   // wallet 1 contributes 17, a prime number, which means there'll be dust in the portions
   {
     wallet_refresh(wallets + 1);
-    EXPECT(result, wallet_stake(wallets + 1, &snode_key, 17), "wallet failed to stake");
+    EXPECT(result, wallet_stake(wallets + 1, &snode_key, 13), "wallet failed to stake");
     wallet_mine_atleast_n_blocks(&dummy_wallet, 5);
   }
 
@@ -892,8 +920,8 @@ test_result latest__register_service_node__allow_87_13_contribution()
 
     uint64_t amount = stake->locked_amounts[0];
     uint64_t expected_amount = 0;
-    if      (i == 0) expected_amount = 83;
-    else if (i == 1) expected_amount = 17;
+    if      (i == 0) expected_amount = 87;
+    else if (i == 1) expected_amount = 13;
 
     EXPECT(result, stake->total_locked_amount == expected_amount * LOKI_ATOMIC_UNITS, "total locked amount: %zu didn't match expected: %zu", stake->total_locked_amount, expected_amount * LOKI_ATOMIC_UNITS);
     EXPECT(result, amount == expected_amount * LOKI_ATOMIC_UNITS,
@@ -1235,7 +1263,6 @@ test_result latest__service_node_checkpointing()
     start_daemon_params daemon_params[NUM_DAEMONS]  = {};
     LOKI_FOR_EACH(i, NUM_DAEMONS)
     {
-      if (i == 0) daemon_params[i].keep_terminal_open = true;
       daemon_params[i].load_latest_hardfork_versions();
       daemon_params[i].custom_cmd_line = "";
     }

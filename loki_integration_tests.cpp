@@ -342,13 +342,7 @@ void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_da
   start_daemon(daemons, num_daemons, params, num_params);
 }
 
-wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
-{
-  wallet_t result = create_wallet(type);
-  start_wallet(&result, params);
-  return result;
-}
-
+char const WALLET_SHARED_MEM_NAME[] = "loki_integration_testing_wallet";
 static in_out_shared_mem setup_shared_mem(char const *base_name, int id)
 {
   in_out_shared_mem result = {};
@@ -363,53 +357,18 @@ static in_out_shared_mem setup_shared_mem(char const *base_name, int id)
   return result;
 }
 
-daemon_t create_daemon()
-{
-  daemon_t result     = {};
-  result.id           = global_state.num_daemons++;
-  result.p2p_port     = global_state.free_p2p_port++;
-  result.rpc_port     = global_state.free_rpc_port++;
-  result.zmq_rpc_port = global_state.free_zmq_port++;
-  result.shared_mem   = setup_shared_mem(DAEMON_SHARED_MEM_NAME, result.id);
-  return result;
-}
-
-char const WALLET_SHARED_MEM_NAME[] = "loki_integration_testing_wallet";
-wallet_t create_wallet(loki_nettype nettype)
+wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
 {
   wallet_t result = {};
   result.id       = global_state.num_wallets++;
-  result.nettype  = nettype;
+  result.nettype  = type;
 
   loki_scratch_buf arg_buf = {};
-  if (result.nettype == loki_nettype::testnet)
-    arg_buf.append("--testnet ");
-  else if (result.nettype == loki_nettype::fakenet)
-    arg_buf.append("--fakenet ");
-  else if (result.nettype == loki_nettype::stagenet)
-    arg_buf.append("--stagenet ");
+  if (result.nettype == loki_nettype::testnet)       arg_buf.append("--testnet ");
+  else if (result.nettype == loki_nettype::fakenet)  arg_buf.append("--fakenet ");
+  else if (result.nettype == loki_nettype::stagenet) arg_buf.append("--stagenet ");
 
   arg_buf.append("--generate-new-wallet ./output/wallet_%d ", result.id);
-  arg_buf.append("--password '' ");
-  arg_buf.append("--mnemonic-language English ");
-  arg_buf.append("save ");
-
-  loki_buffer<128> name("%s%d", WALLET_SHARED_MEM_NAME, result.id);
-  arg_buf.append("--integration-test-shared-mem-name %s ", name.c_str);
-
-  result.shared_mem = setup_shared_mem(WALLET_SHARED_MEM_NAME, result.id);
-  itest_reset_shared_memory(&result.shared_mem);
-
-  loki_scratch_buf cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data, "");
-  os_launch_process(cmd_buf.data);
-  itest_read_stdout_until(&result.shared_mem, "Wallet data saved");
-  return result;
-}
-
-void start_wallet(wallet_t *wallet, start_wallet_params params)
-{
-  loki_scratch_buf arg_buf = {};
-  arg_buf.append("--wallet-file ./output/wallet_%d ", wallet->id);
   arg_buf.append("--password '' ");
   arg_buf.append("--mnemonic-language English ");
 
@@ -419,22 +378,17 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
   if (params.daemon)
     arg_buf.append("--daemon-address 127.0.0.1:%d ", params.daemon->rpc_port);
 
-  if (wallet->nettype == loki_nettype::testnet)
-    arg_buf.append("--testnet ");
-  else if (wallet->nettype == loki_nettype::fakenet)
-    arg_buf.append("--fakenet ");
-  else if (wallet->nettype == loki_nettype::stagenet)
-    arg_buf.append("--stagenet ");
-
-  loki_buffer<128> name("%s%d", WALLET_SHARED_MEM_NAME, wallet->id);
+  loki_buffer<128> name("%s%d", WALLET_SHARED_MEM_NAME, result.id);
   arg_buf.append("--integration-test-shared-mem-name %s ", name.c_str);
-  itest_reset_shared_memory(&wallet->shared_mem);
+
+  result.shared_mem = setup_shared_mem(WALLET_SHARED_MEM_NAME, result.id);
+  itest_reset_shared_memory(&result.shared_mem);
 
 #if 1
   loki_scratch_buf cmd_buf = {};
-  if (params.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data, "bash");
-  else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, wallet->id, arg_buf.data, "");
-  wallet->proc_handle = os_launch_process(cmd_buf.data);
+  if (params.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data, "bash");
+  else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data, "");
+  result.proc_handle = os_launch_process(cmd_buf.data);
 
   itest_read_possible_value const possible_values[] =
   {
@@ -444,9 +398,21 @@ void start_wallet(wallet_t *wallet, start_wallet_params params)
   };
   
   itest_read_possible_value const *proxy_exception_error = possible_values + 1;
-  itest_read_result result = itest_read_stdout_until(&wallet->shared_mem, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  LOKI_ASSERT_MSG(!str_find(result.buf.c_str, proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
+  itest_read_result read_result = itest_read_stdout_until(&result.shared_mem, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  LOKI_ASSERT_MSG(!str_find(read_result.buf.c_str, proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
 #endif
+  return result;
+}
+
+daemon_t create_daemon()
+{
+  daemon_t result     = {};
+  result.id           = global_state.num_daemons++;
+  result.p2p_port     = global_state.free_p2p_port++;
+  result.rpc_port     = global_state.free_rpc_port++;
+  result.zmq_rpc_port = global_state.free_zmq_port++;
+  result.shared_mem   = setup_shared_mem(DAEMON_SHARED_MEM_NAME, result.id);
+  return result;
 }
 
 static void reset_semaphore(sem_t *semaphore)
@@ -534,6 +500,7 @@ int main(int, char **)
   //
   // NOTE: Latest
   //
+
   // RUN_TEST(latest__deregistration__1_unresponsive_node);
   RUN_TEST(latest__prepare_registration__check_solo_stake);
   RUN_TEST(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -584,11 +551,8 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  RUN_TEST(v10__register_service_node__check_grace_period);
-
-  RUN_TEST(v10__stake__allow_incremental_staking_until_node_active);
-  RUN_TEST(v10__stake__allow_insufficient_stake_w_reserved_contributor);
-  RUN_TEST(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
+  // RUN_TEST(foo);
+  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
   // RUN_TEST(latest__service_node_checkpointing); TODO(doyle): Complete test
 #endif
 

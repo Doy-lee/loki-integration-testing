@@ -15,6 +15,8 @@ void        print_test_results(test_result const *results);
 //
 // Latest
 //
+test_result foo();
+
 test_result latest__deregistration__1_unresponsive_node();
 
 test_result latest__prepare_registration__check_solo_stake();

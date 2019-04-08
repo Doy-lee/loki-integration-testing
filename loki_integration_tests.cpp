@@ -501,7 +501,8 @@ int main(int, char **)
   // NOTE: Latest
   //
 
-  // RUN_TEST(latest__deregistration__1_unresponsive_node);
+  RUN_TEST(latest__deregistration__1_unresponsive_node);
+
   RUN_TEST(latest__prepare_registration__check_solo_stake);
   RUN_TEST(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
   RUN_TEST(latest__prepare_registration__check_100_percent_operator_cut_stake);
@@ -515,6 +516,7 @@ int main(int, char **)
   RUN_TEST(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
   RUN_TEST(latest__register_service_node__allow_87_13_reserved_contribution);
   RUN_TEST(latest__register_service_node__allow_87_13_contribution);
+  RUN_TEST(latest__register_service_node__check_unlock_time_is_0);
 
   RUN_TEST(latest__register_service_node__disallow_register_twice);
 
@@ -551,8 +553,9 @@ int main(int, char **)
   //
   RUN_TEST(v09__transfer__check_fee_amount);
 #else
-  // RUN_TEST(foo);
-  RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
+  RUN_TEST(latest__deregistration__1_unresponsive_node);
+  // RUN_TEST(latest__register_service_node__check_unlock_time_is_0);
+  // RUN_TEST(latest__print_locked_stakes__check_shows_locked_stakes);
   // RUN_TEST(latest__service_node_checkpointing); TODO(doyle): Complete test
 #endif
 

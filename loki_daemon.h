@@ -37,6 +37,8 @@ daemon_snode_status daemon_print_sn            (daemon_t *daemon, loki_snode_key
 bool                daemon_print_sn_key        (daemon_t *daemon, loki_snode_key *key);
 daemon_snode_status daemon_print_sn_status     (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
 uint64_t            daemon_print_sr            (daemon_t *daemon, uint64_t height);
+bool                daemon_print_tx            (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
+bool                daemon_relay_tx            (daemon_t *daemon, char const *tx_id);
 daemon_status_t     daemon_status              (daemon_t *daemon);
 
 #endif // LOKI_DAEMON_H
@@ -310,6 +312,39 @@ uint64_t daemon_print_sr(daemon_t *daemon, uint64_t height)
   ++staking_requirement_str;
   uint64_t result = str_parse_loki_amount(staking_requirement_str);
   return result;
+}
+
+bool daemon_print_tx(daemon_t *daemon, char const *tx_id, loki_scratch_buf *output)
+{
+  loki_buffer<256> cmd("print_tx %s +json", tx_id);
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Error: Transaction wasn't found"), true},
+    {LOKI_STR_LIT("output_unlock_times"), false},
+  };
+
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+    return false;
+
+  if (output) *output = read_result.buf;
+  return true;
+}
+
+bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
+{
+  loki_buffer<256> cmd("relay_tx %s", tx_id);
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Unsuccessful -- transaction not found in pool"), true},
+    {LOKI_STR_LIT("Transaction successfully relayed"), false},
+  };
+
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+    return false;
+
+  return true;
 }
 
 daemon_status_t daemon_status(daemon_t *daemon)

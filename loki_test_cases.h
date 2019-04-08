@@ -17,7 +17,7 @@ void        print_test_results(test_result const *results);
 //
 test_result foo();
 
-test_result latest__deregistration__1_unresponsive_node();
+test_result latest__deregistration__n_unresponsive_node();
 
 test_result latest__prepare_registration__check_solo_stake();
 test_result latest__prepare_registration__check_all_solo_stake_forms_valid_registration();
@@ -34,6 +34,7 @@ test_result latest__register_service_node__allow_43_23_13_21_reserved_contributi
 test_result latest__register_service_node__allow_87_13_reserved_contribution();
 test_result latest__register_service_node__allow_87_13_contribution();
 test_result latest__register_service_node__disallow_register_twice();
+test_result latest__register_service_node__check_unlock_time_is_0();
 
 test_result latest__request_stake_unlock__check_pooled_stake_unlocked();
 test_result latest__request_stake_unlock__check_unlock_height();

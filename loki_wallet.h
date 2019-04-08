@@ -74,7 +74,7 @@ uint64_t             wallet_mine_until_height            (wallet_t *wallet, uint
 
 // TODO(doyle): This should return the transaction
 bool                 wallet_request_stake_unlock         (wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height = nullptr);
-bool                 wallet_register_service_node        (wallet_t *wallet, char const *registration_cmd);
+bool                 wallet_register_service_node        (wallet_t *wallet, char const *registration_cmd, loki_transaction *tx = nullptr);
 
 #endif // LOKI_WALLET_H
 
@@ -545,7 +545,7 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
   return !possible_values2[output.matching_find_strs_index].is_fail_msg;
 }
 
-bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd)
+bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd, loki_transaction *tx)
 {
   // Staking X for X blocks a total fee of X. Is this okay?
   itest_read_possible_value const possible_values[] =
@@ -558,7 +558,33 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("Use the print_sn command in the daemon to check the status."));
+  if (tx)
+  {
+    char const *amount_label = str_find(output.buf.c_str, "Staking ");
+    char const *amount_str   = str_skip_to_next_digit(amount_label);
+    assert(amount_label);
+    uint64_t atomic_amount = str_parse_loki_amount(amount_str);
+
+    tx->atomic_amount = atomic_amount;
+    // Extract fee
+    {
+      char const *fee_label = str_find(output.buf.c_str, "The transaction fee is");
+      if (!fee_label) fee_label = str_find(output.buf.c_str, "a total fee of");
+
+      char const *fee_str   = str_skip_to_next_digit(fee_label);
+      LOKI_ASSERT_MSG(fee_label, "Could not find the fee label in: %s", output.buf.c_str);
+      tx->fee = str_parse_loki_amount(fee_str);
+    }
+  }
+
+  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("Transaction successfully submitted, transaction <"));
+  if (tx) // Extract TX ID
+  {
+    char const *id_start = str_find(output.buf.c_str, "<");
+    tx->id.append("%.*s", tx->id.max(), ++id_start);
+  }
+
+  itest_read_stdout_until(&wallet->shared_mem, "Use the print_sn command in the daemon to check the status.");
   return true;
 }
 

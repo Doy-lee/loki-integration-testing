@@ -530,7 +530,7 @@ int main(int, char **)
   int const NUM_THREADS = 1;
 #endif
 
-#if 1
+#if 0
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -563,7 +563,7 @@ int main(int, char **)
   global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+  global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
 #endif
 
   std::vector<std::thread> threads;

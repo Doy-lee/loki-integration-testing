@@ -131,6 +131,32 @@ test_result helper_setup_blockchain_with_1_service_node(daemon_t *daemon, wallet
   return result;
 }
 
+void helper_block_until_blockchains_are_synced(daemon_t *daemons, int num_daemons)
+{
+  if (num_daemons < 0)
+    return;
+
+  daemon_status_t target_status = {};
+  LOKI_FOR_EACH(i, num_daemons)
+  {
+    daemon_t *check_daemon      = daemons + i;
+    daemon_status_t check_status = daemon_status(check_daemon);
+    if (check_status.height > target_status.height)
+      target_status = check_status;
+  }
+
+  LOKI_FOR_EACH(i, num_daemons)
+  {
+    daemon_t *check_daemon = daemons + i;
+    daemon_status_t check_status = daemon_status(check_daemon);
+    while (check_status.height != target_status.height)
+    {
+      os_sleep_ms(250);
+      check_status = daemon_status(check_daemon);
+    }
+  }
+}
+
 //
 // Latest Tests
 //
@@ -151,15 +177,14 @@ test_result latest__deregistration__n_unresponsive_node()
   daemon_params.load_latest_hardfork_versions();
 
   int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
-  // int const NUM_DAEMONS                  = 2;
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
+  int num_deregister_daemons             = LOKI_QUORUM_SIZE / 2;
+  int num_register_daemons               = NUM_DAEMONS - num_deregister_daemons;
 
-  daemon_t       *deregister_daemons     = daemons + LOKI_QUORUM_SIZE;
   loki_snode_key *register_snode_keys    = snode_keys;
-  loki_snode_key *deregister_snode_keys  = snode_keys + LOKI_QUORUM_SIZE;
-  int             num_deregister_daemons = LOKI_QUORUM_SIZE / 2;
-  int             num_register_daemons   = NUM_DAEMONS - num_deregister_daemons;
+  daemon_t       *deregister_daemons     = daemons    + num_register_daemons;
+  loki_snode_key *deregister_snode_keys  = snode_keys + num_register_daemons;
 
   create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params);
   for (size_t i = 0; i < NUM_DAEMONS; ++i)
@@ -213,22 +238,34 @@ test_result latest__deregistration__n_unresponsive_node()
 
   // Mine the registration txs onto the chain and check they have been registered
   {
-    wallet_mine_atleast_n_blocks(&wallet, 5); // Get onto chain
-    os_sleep_s(20); // Give some time for uptime proof to get sent out and propagated
-
+    wallet_mine_atleast_n_blocks(&wallet, 1, 100); // Get onto chain
+    helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
     LOKI_FOR_EACH(i, NUM_DAEMONS)
     {
       loki_snode_key const *snode_key = snode_keys + i;
-      daemon_snode_status status = daemon_print_sn(daemons + 0, snode_key);
+      daemon_snode_status status      = daemon_print_sn(daemons + 0, snode_key);
       EXPECT(result, status.registered, "We EXPECT all daemons to be registered at this point", NUM_DAEMONS);
+    }
+
+    LOKI_FOR_EACH(i, num_register_daemons)
+    {
+      daemon_t *daemon = daemons + i;
+      daemon_relay_votes_and_uptime(daemon);
     }
   }
 
   // Mine atleast LOKI_REORG_SAFETY_BUFFER. Quorum voting can only start after LOKI_REORG_SAFETY_BUFFER
   {
     wallet_mine_atleast_n_blocks(&wallet, LOKI_REORG_SAFETY_BUFFER);
-    os_sleep_s(20); // Wait for votes to propagate and deregister txs to be formed
-    wallet_mine_atleast_n_blocks(&wallet, 5);
+    helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
+
+    LOKI_FOR_EACH(i, num_register_daemons)
+    {
+      daemon_t *daemon = daemons + i;
+      daemon_relay_votes_and_uptime(daemon);
+    }
+    wallet_mine_atleast_n_blocks(&wallet, 2, 100);
+    helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
   }
 
   // Check that there are some nodes that have been deregistered. Not

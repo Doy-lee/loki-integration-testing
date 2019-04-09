@@ -29,17 +29,20 @@ struct daemon_snode_status
   bool registered;
 };
 
-void                daemon_exit                (daemon_t *daemon);
-bool                daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
-void                daemon_print_checkpoints   (daemon_t *daemon);
-uint64_t            daemon_print_height        (daemon_t *daemon);
-daemon_snode_status daemon_print_sn            (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
-bool                daemon_print_sn_key        (daemon_t *daemon, loki_snode_key *key);
-daemon_snode_status daemon_print_sn_status     (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
-uint64_t            daemon_print_sr            (daemon_t *daemon, uint64_t height);
-bool                daemon_print_tx            (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
-bool                daemon_relay_tx            (daemon_t *daemon, char const *tx_id);
-daemon_status_t     daemon_status              (daemon_t *daemon);
+void                daemon_exit                  (daemon_t *daemon);
+bool                daemon_prepare_registration  (daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
+void                daemon_print_checkpoints     (daemon_t *daemon);
+uint64_t            daemon_print_height          (daemon_t *daemon);
+daemon_snode_status daemon_print_sn              (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
+bool                daemon_print_sn_key          (daemon_t *daemon, loki_snode_key *key);
+daemon_snode_status daemon_print_sn_status       (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
+uint64_t            daemon_print_sr              (daemon_t *daemon, uint64_t height);
+bool                daemon_print_tx              (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
+bool                daemon_relay_tx              (daemon_t *daemon, char const *tx_id);
+
+// NOTE: This command is only available in integration mode, compiled out otherwise in the daemon
+void                daemon_relay_votes_and_uptime(daemon_t *daemon);
+daemon_status_t     daemon_status                (daemon_t *daemon);
 
 #endif // LOKI_DAEMON_H
 
@@ -345,6 +348,11 @@ bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
     return false;
 
   return true;
+}
+
+void daemon_relay_votes_and_uptime(daemon_t *daemon)
+{
+  itest_write_then_read_stdout_until(&daemon->shared_mem, "relay_votes_and_uptime", LOKI_STR_LIT("Votes and uptime relayed"));
 }
 
 daemon_status_t daemon_status(daemon_t *daemon)

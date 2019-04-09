@@ -13,6 +13,9 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
+#include <vector>
+#include <atomic>
+
 enum struct terminal_type_t
 {
   lxterminal,
@@ -29,7 +32,6 @@ char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d\" -e bash -c \"/home/do
 char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
 #endif
 
-#include <atomic>
 struct state_t
 {
   std::atomic<int> num_wallets   = 0;
@@ -247,6 +249,10 @@ void itest_read_stdout_for_ms(in_out_shared_mem *shared_mem, int time_ms)
 char const DAEMON_SHARED_MEM_NAME[] = "loki_integration_testing_daemon";
 void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params)
 {
+  // TODO(doyle): Not very efficient
+  std::vector<std::thread> threads;
+  threads.reserve(num_daemons);
+
   LOKI_ASSERT(num_params == num_daemons || num_params == 1);
   for (int curr_daemon_index = 0; curr_daemon_index < num_daemons; ++curr_daemon_index)
   {
@@ -312,9 +318,15 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     if (param.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data, "bash");
     else                          cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data, "");
 
-    curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
-    daemon_status(curr_daemon);
+    threads.push_back(std::thread([curr_daemon, cmd_buf]()
+    {
+      curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
+      daemon_status(curr_daemon);
+    }));
   }
+
+  for (std::thread &daemon_launching_thread : threads)
+    daemon_launching_thread.join();
 }
 
 // L6cuiMjoJs7hbv5qWYxCnEB1WJG827jrDAu4wEsrsnkYVu3miRHFrBy9pGcYch4TDn6dgatqJugUafWxCAELiq461p5mrSa
@@ -512,65 +524,58 @@ int main(int, char **)
   }
 
   printf("\n");
-  bool const MULTITHREAD = true;
-  if (MULTITHREAD)
-  {
-    global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
-    global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
-    global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
-    global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
-    global_work_queue.jobs.push_back(latest__print_locked_stakes__check_no_locked_stakes);
-    global_work_queue.jobs.push_back(latest__print_locked_stakes__check_shows_locked_stakes);
-    global_work_queue.jobs.push_back(latest__register_service_node__allow_4_stakers);
-    global_work_queue.jobs.push_back(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
-    global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
-    global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
-    global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_contribution);
-    global_work_queue.jobs.push_back(latest__register_service_node__check_unlock_time_is_0);
-    global_work_queue.jobs.push_back(latest__register_service_node__disallow_register_twice);
-    global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
-    global_work_queue.jobs.push_back(latest__request_stake_unlock__check_unlock_height);
-    global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_on_non_existent_node);
-    global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_twice);
-    global_work_queue.jobs.push_back(latest__stake__allow_incremental_stakes_with_1_contributor);
-    global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
-    global_work_queue.jobs.push_back(latest__stake__check_transfer_doesnt_used_locked_key_images);
-    global_work_queue.jobs.push_back(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
-    global_work_queue.jobs.push_back(latest__stake__disallow_staking_when_all_amounts_reserved);
-    global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
-    global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_bulletproofs);
-    global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
-    global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
-    global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
-    global_work_queue.jobs.push_back(v10__stake__allow_incremental_staking_until_node_active);
-    global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
-    global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-    global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
+#if 1
+  int const NUM_THREADS = (int)std::thread::hardware_concurrency();
+#else
+  int const NUM_THREADS = 1;
+#endif
 
-    int const num_threads = (int)std::thread::hardware_concurrency();
-    std::vector<std::thread> threads;
-    threads.reserve(num_threads);
+#if 1
+  global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+  global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
+  global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
+  global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
+  global_work_queue.jobs.push_back(latest__print_locked_stakes__check_no_locked_stakes);
+  global_work_queue.jobs.push_back(latest__print_locked_stakes__check_shows_locked_stakes);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_4_stakers);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_contribution);
+  global_work_queue.jobs.push_back(latest__register_service_node__check_unlock_time_is_0);
+  global_work_queue.jobs.push_back(latest__register_service_node__disallow_register_twice);
+  global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
+  global_work_queue.jobs.push_back(latest__request_stake_unlock__check_unlock_height);
+  global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_on_non_existent_node);
+  global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_twice);
+  global_work_queue.jobs.push_back(latest__stake__allow_incremental_stakes_with_1_contributor);
+  global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
+  global_work_queue.jobs.push_back(latest__stake__check_transfer_doesnt_used_locked_key_images);
+  global_work_queue.jobs.push_back(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
+  global_work_queue.jobs.push_back(latest__stake__disallow_staking_when_all_amounts_reserved);
+  global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
+  global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_bulletproofs);
+  global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
+  global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
+  global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
+  global_work_queue.jobs.push_back(v10__stake__allow_incremental_staking_until_node_active);
+  global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
+  global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
+  global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
+#else
+  global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+#endif
 
-    for (int i = 0; i < num_threads; ++i)
-      threads.push_back(std::thread(thread_to_task_dispatcher));
+  std::vector<std::thread> threads;
+  threads.reserve(NUM_THREADS);
 
-    for (int i = 0; i < num_threads; ++i)
-      threads[i].join();
+  for (int i = 0; i < NUM_THREADS; ++i)
+    threads.push_back(std::thread(thread_to_task_dispatcher));
 
-    printf("\nTests passed %zu/%zu (using %d threads)\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size(), num_threads);
-  }
-  else
-  {
-#define RUN_TEST(test_function) \
-  fprintf(stdout, "%03zu " #test_function, results_index + 1); \
-  fflush(stdout); \
-  results[results_index++] = test_function(); \
-  print_test_results(&results[results_index-1])
+  for (int i = 0; i < NUM_THREADS; ++i)
+    threads[i].join();
 
-    test_result results[128] = {};
-    size_t results_index     = 0;
-    RUN_TEST(latest__prepare_registration__check_solo_stake);
-  }
+  printf("\nTests passed %zu/%zu (using %d threads)\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size(), NUM_THREADS);
 
   return 0;
 }

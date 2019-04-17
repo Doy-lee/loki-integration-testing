@@ -150,7 +150,7 @@ void              itest_write_to_stdin              (in_out_shared_mem *shared_m
 itest_read_result itest_write_then_read_stdout      (in_out_shared_mem *shared_mem, char const *cmd);
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit                     find_str);
 itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int possible_values_len);
-void              itest_read_stdout_sink            (in_out_shared_mem *shared_mem, int milliseconds);
+void              itest_read_stdout_sink            (in_out_shared_mem *shared_mem, int seconds);
 itest_read_result itest_read_stdout                 (in_out_shared_mem *shared_mem);
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, char const *find_str);
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len);
@@ -278,15 +278,14 @@ struct start_wallet_params
 wallet_t create_wallet                 (loki_nettype type);
 daemon_t create_daemon                 ();
 void     start_wallet                  (wallet_t *wallet, start_wallet_params params = {});
-void     start_daemon                  (daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {}, int num_params = 1);
-daemon_t create_and_start_daemon       (start_daemon_params params = {});
-void     create_and_start_multi_daemons(daemon_t *daemons, int num_daemons = 1, start_daemon_params params = {});
-void     create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params);
+void     start_daemon                  (daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params, char const *terminal_name);
+daemon_t create_and_start_daemon       (start_daemon_params params, char const *terminal_name);
+void     create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params, char const *terminal_name);
 
 // TODO(doyle): The create and start wallet function launches the wallet
 // separately to create on the commandline and immediately exits. Then launches
 // again for the start part. This is wasteful, we can speed up tests by making
 // it just reuse the same instance it did for creating.
-wallet_t create_and_start_wallet(loki_nettype nettype = loki_nettype::testnet, start_wallet_params params = {});
+wallet_t create_and_start_wallet(loki_nettype nettype, start_wallet_params params, char const *terminal_name);
 
 #endif // LOKI_INTEGRATION_TEST_H

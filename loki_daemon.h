@@ -38,6 +38,7 @@ bool                daemon_print_sn_key          (daemon_t *daemon, loki_snode_k
 daemon_snode_status daemon_print_sn_status       (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
 uint64_t            daemon_print_sr              (daemon_t *daemon, uint64_t height);
 bool                daemon_print_tx              (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
+void                daemon_print_cn              (daemon_t *daemon);
 bool                daemon_relay_tx              (daemon_t *daemon, char const *tx_id);
 
 // NOTE: This command is only available in integration mode, compiled out otherwise in the daemon
@@ -332,6 +333,12 @@ bool daemon_print_tx(daemon_t *daemon, char const *tx_id, loki_scratch_buf *outp
 
   if (output) *output = read_result.buf;
   return true;
+}
+
+void daemon_print_cn(daemon_t *daemon)
+{
+  itest_write_to_stdin(&daemon->shared_mem, "print_cn");
+  itest_read_stdout_sink(&daemon->shared_mem, 1000/*ms*/);
 }
 
 bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)

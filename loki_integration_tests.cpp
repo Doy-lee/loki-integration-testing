@@ -25,11 +25,11 @@ enum struct terminal_type_t
 #define XTERM_CMD 1
 
 #if LXTERMINAL_CMD
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d %s\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d %s\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
 #elif XTERM_CMD
-char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
-char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
+char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d %s\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
 #endif
 
 struct state_t
@@ -179,10 +179,9 @@ itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, char co
   return result;
 }
 
-void itest_read_stdout_sink(in_out_shared_mem *shared_mem, int milliseconds)
+void itest_read_stdout_sink(in_out_shared_mem *shared_mem, int seconds)
 {
-  int time_remaining = LOKI_MS_TO_SECONDS(milliseconds);
-
+  int time_remaining = seconds;
   timespec time = {};
   if (clock_gettime(CLOCK_REALTIME, &time) == -1)
     LOKI_ASSERT(false);
@@ -247,7 +246,7 @@ void itest_read_stdout_for_ms(in_out_shared_mem *shared_mem, int time_ms)
 }
 
 char const DAEMON_SHARED_MEM_NAME[] = "loki_integration_testing_daemon";
-void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params)
+void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params, char const *terminal_name)
 {
   // TODO(doyle): Not very efficient
   std::vector<std::thread> threads;
@@ -260,7 +259,6 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     daemon_t *curr_daemon = daemons + curr_daemon_index;
 
     loki_scratch_buf arg_buf = {};
-    arg_buf.append("%s ",                            param.custom_cmd_line.c_str);
     arg_buf.append("--p2p-bind-port %d ",            curr_daemon->p2p_port);
     arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
@@ -308,6 +306,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
       arg_buf.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
     }
 
+    arg_buf.append("%s ",                            param.custom_cmd_line.c_str);
     itest_reset_shared_memory(&curr_daemon->shared_mem);
     if (curr_daemon->id == 0)
     {
@@ -315,8 +314,8 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     }
 
     loki_scratch_buf cmd_buf = {};
-    if (param.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data, "bash");
-    else                          cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, arg_buf.data, "");
+    if (param.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, terminal_name, arg_buf.data, "bash");
+    else                          cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, terminal_name, arg_buf.data, "");
 
     threads.push_back(std::thread([curr_daemon, cmd_buf]()
     {
@@ -332,27 +331,18 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
 // L6cuiMjoJs7hbv5qWYxCnEB1WJG827jrDAu4wEsrsnkYVu3miRHFrBy9pGcYch4TDn6dgatqJugUafWxCAELiq461p5mrSa
 // T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD
 
-daemon_t create_and_start_daemon(start_daemon_params params)
+daemon_t create_and_start_daemon(start_daemon_params params, char const *terminal_name)
 {
   daemon_t result = create_daemon();
-  start_daemon(&result, 1, &params, 1);
+  start_daemon(&result, 1, &params, 1, terminal_name);
   return result;
 }
 
-void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params params)
+void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params, char const *terminal_name)
 {
   for (int i = 0; i < num_daemons; ++i)
     daemons[i] = create_daemon();
-  start_daemon(daemons, num_daemons, &params, 1);
-}
-
-void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params)
-{
-  LOKI_ASSERT(num_params == num_daemons || num_params == 1);
-
-  for (int i = 0; i < num_daemons; ++i)
-    daemons[i] = create_daemon();
-  start_daemon(daemons, num_daemons, params, num_params);
+  start_daemon(daemons, num_daemons, params, num_params, terminal_name);
 }
 
 char const WALLET_SHARED_MEM_NAME[] = "loki_integration_testing_wallet";
@@ -370,7 +360,7 @@ static in_out_shared_mem setup_shared_mem(char const *base_name, int id)
   return result;
 }
 
-wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
+wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, char const *terminal_name)
 {
   wallet_t result = {};
   result.id       = global_state.num_wallets++;
@@ -399,8 +389,8 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params)
 
 #if 1
   loki_scratch_buf cmd_buf = {};
-  if (params.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data, "bash");
-  else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, arg_buf.data, "");
+  if (params.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.data, "bash");
+  else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.data, "");
   result.proc_handle = os_launch_process(cmd_buf.data);
 
   itest_read_possible_value const possible_values[] =
@@ -530,7 +520,7 @@ int main(int, char **)
   int const NUM_THREADS = 1;
 #endif
 
-#if 0
+#if 1
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -563,7 +553,7 @@ int main(int, char **)
   global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
+  global_work_queue.jobs.push_back(latest__service_node_checkpointing);
 #endif
 
   std::vector<std::thread> threads;

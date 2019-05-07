@@ -553,7 +553,8 @@ int main(int, char **)
   global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  global_work_queue.jobs.push_back(latest__service_node_checkpointing);
+  // global_work_queue.jobs.push_back(latest__service_node_checkpointing);
+  global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
 #endif
 
   std::vector<std::thread> threads;

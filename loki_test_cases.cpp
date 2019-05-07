@@ -49,6 +49,13 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
   "LEGbch6JYiUjX3ebUvVZZNiU2wNT3SBD4DZgGH9xN56VGq4obkGsKEF8zGLBXiNnFv5dzQX1Yg1Yx99YSgg4GDaZKw6zxcA",
 };
 
+// NOTE: The minimum amount such that spending funds is reliable and doesn't
+// error out with insufficient outputs to select from.
+// NOTE: This used to be much lower, like 100, but after the output selection
+// algorithm changed, the fake outputs lineup commit this seems to be a lot
+// stricter now
+const int MIN_BLOCKS_IN_BLOCKCHAIN = 100;
+
 void print_test_results(test_result const *test)
 {
   int const TARGET_LEN = 76;
@@ -109,7 +116,7 @@ test_result helper_setup_blockchain_with_1_service_node(test_result const *conte
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  helper_setup_blockchain_with_n_blocks(context, daemon, wallet, addr, 200);
+  helper_setup_blockchain_with_n_blocks(context, daemon, wallet, addr, MIN_BLOCKS_IN_BLOCKCHAIN);
   EXPECT(result, daemon_print_sn_key(daemon, snode_key), "Failed to get service node key, did daemon start in service node mode?");
 
   {
@@ -207,7 +214,7 @@ test_result latest__deregistration__n_unresponsive_node()
   // Prepare blockchain, atleast 100 blocks so we have outputs to pick from
   int const FAKECHAIN_STAKING_REQUIREMENT = 100;
   {
-    wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
+    wallet_mine_atleast_n_blocks(&wallet, MIN_BLOCKS_IN_BLOCKCHAIN, LOKI_SECONDS_TO_MS(4));
     wallet_mine_until_unlocked_balance(&wallet, static_cast<int>(NUM_DAEMONS * FAKECHAIN_STAKING_REQUIREMENT)); // TODO(doyle): Assuming staking requirement of 100 fakechain
   }
 
@@ -1112,9 +1119,9 @@ test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
     EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
-      wallet_mine_atleast_n_blocks(wallets + i, 5, 100);
+      wallet_mine_atleast_n_blocks(wallets + i, 5);
 
-    wallet_mine_until_height(wallets + 0, 200);
+    wallet_mine_until_height(wallets + 0, MIN_BLOCKS_IN_BLOCKCHAIN);
   }
 
   // Register the service node
@@ -1461,23 +1468,11 @@ test_result latest__stake__allow_incremental_stakes_with_1_contributor()
   wallet_t wallet = {};
   LOKI_DEFER { wallet_exit(&wallet); daemon_exit(&daemon); };
 
-  // Start up daemon and wallet
-  loki_snode_key snode_key = {};
-  {
-    start_daemon_params daemon_params = {};
-    daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
-
-    start_wallet_params wallet_params = {};
-    wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
-    wallet_set_default_testing_settings(&wallet);
-    EXPECT(result, daemon_print_sn_key(&daemon, &snode_key), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
-  }
-
   loki_addr my_addr = {};
-  wallet_mine_atleast_n_blocks(&wallet, 100, LOKI_SECONDS_TO_MS(4));
-  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+  helper_setup_blockchain_with_n_blocks(&result, &daemon, &wallet, &my_addr, MIN_BLOCKS_IN_BLOCKCHAIN);
+
+  loki_snode_key snode_key = {};
+  EXPECT(result, daemon_print_sn_key(&daemon, &snode_key), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
 
   // Register the service node
   {
@@ -2038,7 +2033,7 @@ test_result v10__register_service_node__check_grace_period()
   // Mine enough funds for a registration
   loki_addr my_addr = {};
   {
-    wallet_mine_until_height(&wallet, 200, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
+    wallet_mine_until_height(&wallet, MIN_BLOCKS_IN_BLOCKCHAIN, LOKI_SECONDS_TO_MS(4)/*mining_duration_in_ms*/);
     wallet_address(&wallet, 0, &my_addr);
     wallet_sweep_all(&wallet, my_addr.buf.c_str, nullptr);
     wallet_mine_until_unlocked_balance(&wallet, 100 * LOKI_ATOMIC_UNITS, 100/*mining_duration_in_ms*/);

@@ -29,17 +29,21 @@ struct daemon_snode_status
   bool registered;
 };
 
-void                daemon_exit                  (daemon_t *daemon);
-bool                daemon_prepare_registration  (daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
-void                daemon_print_checkpoints     (daemon_t *daemon);
-uint64_t            daemon_print_height          (daemon_t *daemon);
-daemon_snode_status daemon_print_sn              (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
-bool                daemon_print_sn_key          (daemon_t *daemon, loki_snode_key *key);
-daemon_snode_status daemon_print_sn_status       (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
-uint64_t            daemon_print_sr              (daemon_t *daemon, uint64_t height);
-bool                daemon_print_tx              (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
-void                daemon_print_cn              (daemon_t *daemon);
-bool                daemon_relay_tx              (daemon_t *daemon, char const *tx_id);
+void                daemon_exit                 (daemon_t *daemon);
+bool                daemon_prepare_registration (daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
+void                daemon_print_checkpoints    (daemon_t *daemon);
+uint64_t            daemon_print_height         (daemon_t *daemon);
+daemon_snode_status daemon_print_sn             (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
+bool                daemon_print_sn_key         (daemon_t *daemon, loki_snode_key *key);
+daemon_snode_status daemon_print_sn_status      (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
+uint64_t            daemon_print_sr             (daemon_t *daemon, uint64_t height);
+bool                daemon_print_tx             (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
+void                daemon_print_cn             (daemon_t *daemon);
+bool                daemon_relay_tx             (daemon_t *daemon, char const *tx_id);
+bool                daemon_mine_n_blocks        (daemon_t *daemon, wallet_t *wallet, int num_blocks);
+void                daemon_mine_n_blocks        (daemon_t *daemon, loki_addr const *addr, int num_blocks);
+void                daemon_mine_until_height    (daemon_t *daemon, loki_addr const *addr, uint64_t desired_height);
+bool                daemon_mine_until_height    (daemon_t *daemon, wallet_t *wallet, uint64_t desired_height);
 
 // NOTE: This command is only available in integration mode, compiled out otherwise in the daemon
 void                daemon_relay_votes_and_uptime(daemon_t *daemon);
@@ -355,6 +359,41 @@ bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
     return false;
 
   return true;
+}
+
+bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
+{
+  loki_addr addr = {};
+  bool result    = wallet_address(wallet, 0, &addr);
+  if (result) daemon_mine_n_blocks(daemon, &addr, num_blocks);
+  return result;
+}
+
+void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_blocks)
+{
+  for (int i = 0; i < num_blocks; i++)
+  {
+    loki_buffer<256> cmd("debug_mine_singular_block %s", addr->buf.c_str);
+    itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Mining stopped in daemon"));
+  }
+}
+
+void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t desired_height)
+{
+  daemon_status_t status = daemon_status(daemon);
+  if (desired_height < status.height)
+    return;
+
+  uint64_t blocks_to_mine = desired_height - status.height;
+  daemon_mine_n_blocks(daemon, addr, blocks_to_mine);
+}
+
+bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desired_height)
+{
+  loki_addr addr = {};
+  bool result    = wallet_address(wallet, 0, &addr);
+  if (result) daemon_mine_until_height(daemon, &addr, desired_height);
+  return result;
 }
 
 void daemon_relay_votes_and_uptime(daemon_t *daemon)

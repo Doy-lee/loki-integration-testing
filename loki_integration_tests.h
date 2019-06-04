@@ -261,7 +261,7 @@ struct start_daemon_params
   int               num_hardforks;
   loki_nettype      nettype          = loki_nettype::testnet;
   bool              keep_terminal_open;
-  loki_buffer<1024> custom_cmd_line;
+  loki_buffer<2048> custom_cmd_line;
 
   void add_hardfork                          (int version, int height); // TODO: Sets daemon mode to fakechain sadly, can't keep testnet. We should fix this
   void add_sequential_hardforks_until_version(int version);

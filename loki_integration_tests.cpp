@@ -96,6 +96,7 @@ void start_daemon_params::load_latest_hardfork_versions()
   this->add_hardfork(9, 2);
   this->add_hardfork(10, 3);
   this->add_hardfork(11, 4);
+  this->add_hardfork(12, 5);
 }
 
 void itest_write_to_stdin(in_out_shared_mem *shared_mem, char const *cmd)
@@ -520,7 +521,7 @@ int main(int, char **)
   int const NUM_THREADS = 1;
 #endif
 
-#if 1
+#if 0
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -554,7 +555,7 @@ int main(int, char **)
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
   // global_work_queue.jobs.push_back(latest__service_node_checkpointing);
-  global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
+  global_work_queue.jobs.push_back(foo);
 #endif
 
   std::vector<std::thread> threads;

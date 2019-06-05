@@ -195,7 +195,7 @@ test_result latest__deregistration__n_unresponsive_node()
   INITIALISE_TEST_CONTEXT(result);
 
   start_daemon_params daemon_params = {};
-  daemon_params.fixed_difficulty    = 2;
+  daemon_params.fixed_difficulty    = 1;
   daemon_params.load_latest_hardfork_versions();
 
   int const NUM_DAEMONS                  = (LOKI_QUORUM_SIZE * 2);
@@ -260,7 +260,7 @@ test_result latest__deregistration__n_unresponsive_node()
 
   // Mine the registration txs onto the chain and check they have been registered
   {
-    daemon_mine_n_blocks(daemons + 0, &wallet, 1); // Get onto chain
+    daemon_mine_n_blocks(daemons + 0, &wallet, 2); // Get onto chain
     helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
     LOKI_FOR_EACH(i, NUM_DAEMONS)
     {
@@ -286,7 +286,9 @@ test_result latest__deregistration__n_unresponsive_node()
       daemon_t *daemon = daemons + i;
       daemon_relay_votes_and_uptime(daemon);
     }
-    daemon_mine_n_blocks(daemons + 0, &wallet, 1);
+
+    // Mine blocks to deregister daemons
+    daemon_mine_n_blocks(daemons + 0, &wallet, 50);
     helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
   }
 

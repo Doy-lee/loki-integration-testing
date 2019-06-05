@@ -365,17 +365,18 @@ bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
 {
   loki_addr addr = {};
   bool result    = wallet_address(wallet, 0, &addr);
-  if (result) daemon_mine_n_blocks(daemon, &addr, num_blocks);
+  if (result)
+  {
+    daemon_mine_n_blocks(daemon, &addr, num_blocks);
+    wallet_refresh(wallet);
+  }
   return result;
 }
 
 void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_blocks)
 {
-  for (int i = 0; i < num_blocks; i++)
-  {
-    loki_buffer<256> cmd("debug_mine_singular_block %s", addr->buf.c_str);
-    itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Mining stopped in daemon"));
-  }
+  loki_buffer<256> cmd("debug_mine_n_blocks %s %d", addr->buf.c_str, num_blocks);
+  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Mining stopped in daemon"));
 }
 
 void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t desired_height)
@@ -392,7 +393,11 @@ bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desir
 {
   loki_addr addr = {};
   bool result    = wallet_address(wallet, 0, &addr);
-  if (result) daemon_mine_until_height(daemon, &addr, desired_height);
+  if (result)
+  {
+    daemon_mine_until_height(daemon, &addr, desired_height);
+    wallet_refresh(wallet);
+  }
   return result;
 }
 

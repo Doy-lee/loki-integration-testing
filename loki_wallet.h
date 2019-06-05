@@ -9,6 +9,7 @@
 
 #include "loki_os.h"
 #include "loki_integration_tests.h"
+#include "loki_daemon.h"
 
 struct wallet_params
 {
@@ -66,11 +67,8 @@ bool                 wallet_sweep_all                    (wallet_t *wallet, char
 bool                 wallet_transfer                     (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
 bool                 wallet_transfer                     (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
 
-void                 wallet_mine_atleast_n_blocks        (wallet_t *wallet, int num_blocks, int mining_duration_in_ms = 1000);
-inline void          wallet_mine_money_unlock_time_blocks(wallet_t *wallet) { wallet_mine_atleast_n_blocks(wallet, 30); }
-void                 wallet_mine_for_n_milliseconds      (wallet_t *wallet, int milliseconds);
-uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms = 1000); // return: The actual unlocked balance, can vary by abit.
-uint64_t             wallet_mine_until_height            (wallet_t *wallet, uint64_t desired_height,           int mining_duration_in_ms = 1000); // return: The actual height
+// TODO(doyle): We should be able to roughly calculate how much blocks we need to mine
+uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, daemon_t *daemon, uint64_t desired_unlocked_balance, int blocks_between_check = LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW);
 
 // TODO(doyle): This should return the transaction
 bool                 wallet_request_stake_unlock         (wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height = nullptr);
@@ -89,9 +87,10 @@ bool                 wallet_register_service_node        (wallet_t *wallet, char
 
 void wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params)
 { 
-  loki_buffer<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
   itest_write_then_read_stdout_until(&wallet->shared_mem, refresh_height.c_str, LOKI_STR_LIT("Wallet password"));
+  loki_buffer<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
+  itest_write_to_stdin(&wallet->shared_mem, ask_password.c_str);
 
 
 #if 0 // TODO(doyle): Hack. Can't get this to work reliably, right not the binaries are built to default to these settings
@@ -455,56 +454,22 @@ bool wallet_transfer(wallet_t *wallet, loki_addr const *dest, uint64_t amount, l
   return result;
 }
 
-void wallet_mine_atleast_n_blocks(wallet_t *wallet, int num_blocks, int mining_duration_in_ms)
-{
-  for (uint64_t start_height = wallet_status(wallet);;)
-  {
-    wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
-    wallet_refresh(wallet);
-
-    uint64_t curr_height = wallet_status(wallet);
-    int delta_height = static_cast<int>(curr_height - start_height);
-    if (delta_height > num_blocks)
-      break;
-  }
-}
-
-void wallet_mine_for_n_milliseconds(wallet_t *wallet, int milliseconds)
-{
-  itest_read_possible_value const possible_values[] =
-  {
-    {LOKI_STR_LIT("mining has NOT been started"), true},
-    {LOKI_STR_LIT("Mining started in daemon"), false},
-  };
-
-  itest_write_then_read_stdout_until(&wallet->shared_mem, "start_mining", possible_values, LOKI_ARRAY_COUNT(possible_values));
-  os_sleep_ms(milliseconds);
-  itest_write_then_read_stdout_until(&wallet->shared_mem, "stop_mining", LOKI_STR_LIT("Mining stopped in daemon"));
-}
-
-uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, uint64_t desired_unlocked_balance, int mining_duration_in_ms)
+uint64_t wallet_mine_until_unlocked_balance(wallet_t *wallet, daemon_t *daemon, uint64_t desired_unlocked_balance, int blocks_between_check)
 {
   uint64_t unlocked_balance = 0;
-  for (;unlocked_balance < desired_unlocked_balance;)
+
+  loki_addr addr = {};
+  if (wallet_address(wallet, 0, &addr))
   {
-    wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
-    wallet_refresh                (wallet);
-    wallet_balance                (wallet, &unlocked_balance);
+    for (wallet_balance(wallet, &unlocked_balance); unlocked_balance < desired_unlocked_balance;)
+    {
+      daemon_mine_n_blocks(daemon, &addr, blocks_between_check);
+      wallet_refresh(wallet);
+      wallet_balance(wallet, &unlocked_balance);
+    }
   }
 
   return unlocked_balance;
-}
-
-uint64_t wallet_mine_until_height(wallet_t *wallet, uint64_t desired_height, int mining_duration_in_ms)
-{
-  uint64_t curr_height = wallet_status(wallet);
-  for (; curr_height < desired_height; curr_height = wallet_status(wallet))
-  {
-    wallet_mine_for_n_milliseconds(wallet, mining_duration_in_ms);
-    wallet_refresh(wallet);
-  }
-
-  return curr_height;
 }
 
 bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height)

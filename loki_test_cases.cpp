@@ -1,4 +1,6 @@
 #include <chrono>
+#include <vector>
+
 #include "loki_test_cases.h"
 
 #define LOKI_WALLET_IMPLEMENTATION
@@ -71,7 +73,7 @@ void print_test_results(test_result const *test)
   if (test->failed) buf.append(LOKI_ANSI_COLOR_RED);
   else              buf.append(LOKI_ANSI_COLOR_GREEN);
 
-  buf.append("%s (%5.2fs)" LOKI_ANSI_COLOR_RESET "\n", STATUS, test->duration_ms);
+  buf.append("%s (%05.2fs)" LOKI_ANSI_COLOR_RESET "\n", STATUS, test->duration_ms);
 
   if (test->failed) buf.append("  Message: %s\n\n", test->fail_msg.c_str);
   fprintf(stdout, "%s", buf.c_str);
@@ -163,6 +165,139 @@ void helper_block_until_blockchains_are_synced(daemon_t *daemons, int num_daemon
   }
 }
 
+// TODO(doyle): Switch most setup to using this helper, since it covers almost all use cases
+struct helper_blockchain_environment
+{
+  std::vector<daemon_t>       all_daemons;
+  daemon_t                   *service_nodes;
+  int                         num_service_nodes;
+  daemon_t                   *daemons;
+  int                         num_daemons;
+  std::vector<loki_snode_key> snode_keys;
+  wallet_t                    wallet;
+  loki_addr                   wallet_addr;
+};
+
+void helper_cleanup_blockchain_environment(helper_blockchain_environment *environment)
+{
+  for (daemon_t &daemon : environment->all_daemons)
+    daemon_exit(&daemon);
+  wallet_exit(&environment->wallet);
+}
+
+bool helper_setup_blockchain(helper_blockchain_environment *environment,
+                             test_result const *context,
+                             start_daemon_params daemon_param,
+                             int num_service_nodes,
+                             int num_daemons)
+{
+  assert(num_service_nodes + num_daemons > 0);
+  environment->all_daemons.resize(num_service_nodes + num_daemons);
+
+  if (num_service_nodes)
+  {
+    environment->service_nodes     = environment->all_daemons.data();
+    environment->num_service_nodes = num_service_nodes;
+    environment->snode_keys.resize(num_service_nodes);
+  }
+
+  if (num_daemons)
+  {
+    environment->daemons     = environment->all_daemons.data() + num_service_nodes;
+    environment->num_daemons = num_daemons;
+  }
+
+  daemon_t *all_daemons = environment->all_daemons.data();
+  int total_daemons     = num_service_nodes + num_daemons;
+  {
+    create_and_start_multi_daemons(all_daemons, total_daemons, &daemon_param, 1, context->name.c_str);
+    LOKI_FOR_EACH(daemon_index, num_service_nodes)
+    {
+      if (!daemon_print_sn_key(environment->service_nodes + daemon_index, &environment->snode_keys[daemon_index]))
+        return false;
+    }
+  }
+
+  {
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = all_daemons + 0;
+    environment->wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.c_str);
+    wallet_set_default_testing_settings(&environment->wallet);
+
+    if (!wallet_address(&environment->wallet, 0, &environment->wallet_addr))
+      return false;
+  }
+
+  daemon_mine_n_blocks(all_daemons + 0, &environment->wallet, MIN_BLOCKS_IN_BLOCKCHAIN);
+  helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
+
+  // Register the service node
+  LOKI_FOR_EACH(daemon_index, environment->num_service_nodes)
+  {
+    daemon_prepare_registration_params params             = {};
+    params.contributors[params.num_contributors].addr     = environment->wallet_addr;
+    params.contributors[params.num_contributors++].amount = 100;
+
+    loki_scratch_buf registration_cmd = {};
+    if (!daemon_prepare_registration(&environment->service_nodes[daemon_index], &params, &registration_cmd) ||
+        !wallet_register_service_node(&environment->wallet, registration_cmd.c_str))
+    {
+      return false;
+    }
+  }
+
+  daemon_mine_n_blocks(all_daemons + 0, &environment->wallet, 1);
+  helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
+  return true;
+}
+
+bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
+                                                  daemon_t *daemons,
+                                                  loki_snode_key *snode_keys,
+                                                  start_daemon_params *daemon_params,
+                                                  int num_daemons,
+                                                  wallet_t *wallet,
+                                                  loki_addr *addr)
+{
+  // Start up daemon and wallet
+  {
+    create_and_start_multi_daemons(daemons, num_daemons, daemon_params, num_daemons, context->name.c_str);
+    LOKI_FOR_EACH(daemon_index, num_daemons)
+    {
+      if (!daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index))
+        return false;
+    }
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = daemons + 0;
+    *wallet = create_and_start_wallet(daemon_params[0].nettype, wallet_params, context->name.c_str);
+    wallet_set_default_testing_settings(wallet);
+  }
+
+  if (!wallet_address(wallet, 0, addr))
+    return false;
+
+  daemon_mine_n_blocks(daemons + 0, wallet, MIN_BLOCKS_IN_BLOCKCHAIN);
+  helper_block_until_blockchains_are_synced(daemons, num_daemons);
+
+  // Register the service node
+  LOKI_FOR_EACH(daemon_index, num_daemons)
+  {
+    daemon_prepare_registration_params params             = {};
+    params.contributors[params.num_contributors].addr     = *addr;
+    params.contributors[params.num_contributors++].amount = 100;
+
+    loki_scratch_buf registration_cmd = {};
+    if (!daemon_prepare_registration(daemons + daemon_index, &params, &registration_cmd) ||
+        !wallet_register_service_node(wallet, registration_cmd.c_str))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 //
 // Latest Tests
 //
@@ -220,9 +355,8 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   INITIALISE_TEST_CONTEXT(result);
 
   int const NUM_DAEMONS = 10;
-  loki_snode_key snode_keys[NUM_DAEMONS] = {};
-  daemon_t daemons[NUM_DAEMONS]          = {};
-  wallet_t wallet                        = {};
+  daemon_t daemons[NUM_DAEMONS] = {};
+  wallet_t wallet               = {};
   LOKI_DEFER
   {
     wallet_exit(&wallet);
@@ -230,38 +364,13 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
       daemon_exit(daemons + daemon_index);
   };
 
-  // Start up daemon and wallet
-  start_daemon_params daemon_params[NUM_DAEMONS]  = {};
-  {
-    LOKI_FOR_EACH(i, NUM_DAEMONS)
-      daemon_params[i].load_latest_hardfork_versions();
-
-    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.c_str);
-    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-      EXPECT(result, daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
-
-    start_wallet_params wallet_params = {};
-    wallet_params.daemon              = daemons + 0;
-    wallet                            = create_and_start_wallet(daemon_params[0].nettype, wallet_params, result.name.c_str);
-    wallet_set_default_testing_settings(&wallet);
-  }
-
-  loki_addr my_addr = {};
-  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
-  daemon_mine_n_blocks(daemons + 0, &wallet, 100);
-  helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS);
-
-  // Register the service node
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
-  {
-    daemon_prepare_registration_params params             = {};
-    params.contributors[params.num_contributors].addr     = my_addr;
-    params.contributors[params.num_contributors++].amount = 100;
-
-    loki_scratch_buf registration_cmd = {};
-    EXPECT(result, daemon_prepare_registration (daemons + daemon_index, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
-  }
+  loki_snode_key snode_keys[NUM_DAEMONS]         = {};
+  start_daemon_params daemon_params[NUM_DAEMONS] = {};
+  loki_addr my_addr                              = {};
+  EXPECT(result,
+         helper_setup_blockchain_with_n_service_nodes(
+             &result, daemons, snode_keys, daemon_params, NUM_DAEMONS, &wallet, &my_addr),
+         "Failed to setup basic blockchain with service nodes");
 
   // Naughty daemon disconnects from the main chain by banning everyone
   int naughty_daemon_index                   = NUM_DAEMONS - 1;
@@ -318,6 +427,95 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   }
 
   EXPECT(result, target_blockchain_height == naughty_height, "%zu == %zu, The naughty daemon who private mined a chain did not reorg to the checkpointed chain!", target_blockchain_height, naughty_height);
+  return result;
+}
+
+test_result latest__checkpointing__new_peer_syncs_checkpoints()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.fixed_difficulty    = 1;
+  daemon_params.keep_terminal_open  = true;
+  daemon_params.load_latest_hardfork_versions();
+
+  int const NUM_DAEMONS                  = (LOKI_CHECKPOINT_QUORUM_SIZE * 2) + 1;
+  int const NUM_SERVICE_NODES            = NUM_DAEMONS - 1;
+  loki_snode_key snode_keys[NUM_DAEMONS] = {};
+  daemon_t daemons[NUM_DAEMONS]          = {};
+
+  create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.c_str);
+  for (size_t i = 0; i < NUM_SERVICE_NODES; ++i)
+    LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
+
+  start_wallet_params wallet_params = {};
+  wallet_params.daemon              = daemons + 0;
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+  wallet_set_default_testing_settings(&wallet);
+
+  loki_buffer<32> ban_ip("127.0.0.1");
+  daemon_t *new_peer = daemons + NUM_DAEMONS - 1;
+  daemon_ban(new_peer, &ban_ip);
+
+  LOKI_DEFER
+  {
+    wallet_exit(&wallet);
+    for (size_t i = 0; i < (size_t)NUM_DAEMONS; ++i)
+      daemon_exit(daemons + i);
+  };
+
+  // Setup node registration params to come from our single wallet
+  daemon_mine_n_blocks(daemons + 0, &wallet, MIN_BLOCKS_IN_BLOCKCHAIN);
+  {
+    daemon_prepare_registration_params register_params                    = {};
+    register_params.contributors[register_params.num_contributors].amount = 100;
+    wallet_address(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
+
+    LOKI_FOR_EACH(i, NUM_SERVICE_NODES) // Register each daemon on the network
+    {
+      loki_scratch_buf registration_cmd = {};
+      daemon_t *daemon                  = daemons + i;
+      EXPECT(result, daemon_prepare_registration (daemon, &register_params, &registration_cmd), "Failed to prepare registration");
+
+      loki_transaction register_tx = {};
+      EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str, &register_tx),"Failed to register service node");
+    }
+  }
+
+  // Mine registration and become service nodes and mine and generatea blockchain + checkpoints
+  for (int unused_ = 0; unused_ < 128; unused_++)
+  {
+    daemon_mine_n_blocks(daemons + 0, &wallet, 1);
+    LOKI_FOR_EACH(daemon_index, NUM_SERVICE_NODES)
+    {
+      daemon_t *daemon = daemons + daemon_index;
+      daemon_relay_votes_and_uptime(daemon);
+    }
+    helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS - 1);
+  }
+
+  // Unban localhost, restoring connection to the new peer and see if it syncs up
+  daemon_unban(new_peer, &ban_ip);
+  daemon_status_t daemon_0_status   = daemon_status(daemons + 0);
+  daemon_status_t new_peer_status   = daemon_status(new_peer);
+  uint64_t target_blockchain_height = daemon_0_status.height;
+  uint64_t new_peer_height          = new_peer_status.height;
+
+  // NOTE: Retry a couple of times and wait for the new peer to sync
+  for (int i = 0; i < 3 && new_peer_height != target_blockchain_height; i++)
+  {
+    os_sleep_ms(2000);
+    new_peer_status = daemon_status(new_peer);
+    new_peer_height = new_peer_status.height;
+  }
+  EXPECT(result, target_blockchain_height == new_peer_height, "%zu == %zu, The new_peer did not sync to the target chain height!", target_blockchain_height, new_peer_height);
+
+  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
+  {
+    daemon_t *daemon = daemons + daemon_index;
+    daemon_print_checkpoints(daemon);
+  }
   return result;
 }
 

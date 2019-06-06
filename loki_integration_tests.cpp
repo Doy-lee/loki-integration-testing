@@ -508,8 +508,9 @@ int main(int, char **)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
-#if 1
+#if 0
   global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -543,7 +544,7 @@ int main(int, char **)
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
   // global_work_queue.jobs.push_back(foo);
-  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
 #endif
 
   std::vector<std::thread> threads;

@@ -1,3 +1,4 @@
+#include <chrono>
 #include "loki_test_cases.h"
 
 #define LOKI_WALLET_IMPLEMENTATION
@@ -59,29 +60,20 @@ const int MIN_BLOCKS_IN_BLOCKCHAIN = 100;
 void print_test_results(test_result const *test)
 {
   int const TARGET_LEN = 76;
-  loki_scratch_buf buf = {};
-  buf.append("%s ", test->name.c_str);
+  char const *STATUS   = (test->failed) ? "FAILED" : "OK";
 
-  if (test->failed)
-  {
-    char const STATUS[]     = "FAILED";
-    int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
-    int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
 
-    for (int i = 0; i < remaining_len; ++i) buf.append(".");
-    buf.append(LOKI_ANSI_COLOR_RED "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
-    buf.append("  Message: %s\n\n", test->fail_msg.c_str);
-  }
-  else
-  {
-    char const STATUS[]     = "OK!";
-    int total_len           = test->name.len + LOKI_CHAR_COUNT(STATUS);
-    int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
+  loki_scratch_buf buf("%s ", test->name.c_str);
+  int total_len           = test->name.len + strlen(STATUS);
+  int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
+  for (int i = 0; i < remaining_len; ++i) buf.append(".");
 
-    for (int i = 0; i < remaining_len; ++i) buf.append(".");
-    buf.append(LOKI_ANSI_COLOR_GREEN "%s" LOKI_ANSI_COLOR_RESET "\n", STATUS);
-  }
+  if (test->failed) buf.append(LOKI_ANSI_COLOR_RED);
+  else              buf.append(LOKI_ANSI_COLOR_GREEN);
 
+  buf.append("%s (%5.2fs)" LOKI_ANSI_COLOR_RESET "\n", STATUS, test->duration_ms);
+
+  if (test->failed) buf.append("  Message: %s\n\n", test->fail_msg.c_str);
   fprintf(stdout, "%s", buf.c_str);
 }
 
@@ -92,7 +84,14 @@ struct loki_err_context
   operator bool() { return success; }
 };
 
-#define INITIALISE_TEST_CONTEXT(test_result_var) test_result_var.name = loki_buffer<512>(__func__); \
+#define INITIALISE_TEST_CONTEXT(test_result_var)                               \
+  test_result_var.name = loki_buffer<512>(__func__);                           \
+  auto start_time = std::chrono::high_resolution_clock::now();                 \
+  LOKI_DEFER {                                                                 \
+    auto end_time = std::chrono::high_resolution_clock::now();                 \
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time) .count(); \
+    test_result_var.duration_ms = duration / 1000.f; \
+  }
 
 //
 // NOTE: Helpers
@@ -172,6 +171,7 @@ test_result foo()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
+#if 0
   loki_addr wallet_addr = {};
   daemon_t daemon       = {};
   wallet_t wallet       = {};
@@ -185,7 +185,139 @@ test_result foo()
     daemon_status(&daemon);
     os_sleep_ms(2000);
   }
+#else
+  const int NUM_DAEMONS = 20;
+  daemon_t daemons[NUM_DAEMONS] = {};
+  start_daemon_params daemon_params[NUM_DAEMONS]  = {};
+  {
+    LOKI_FOR_EACH(i, NUM_DAEMONS)
+      daemon_params[i].load_latest_hardfork_versions();
+    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.c_str);
+  }
 
+  loki_addr addr = {};
+  addr.set_normal_addr(LOKI_MAINNET_ADDR[0]);
+
+  for (;;)
+  {
+    daemon_mine_n_blocks(daemons + 0, &addr, 1);
+    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
+    {
+      daemon_t *daemon = daemons + daemon_index;
+      daemon_relay_votes_and_uptime(daemon);
+    }
+    helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS);
+  }
+#endif
+
+
+  return result;
+}
+
+test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  int const NUM_DAEMONS = 10;
+  loki_snode_key snode_keys[NUM_DAEMONS] = {};
+  daemon_t daemons[NUM_DAEMONS]          = {};
+  wallet_t wallet                        = {};
+  LOKI_DEFER
+  {
+    wallet_exit(&wallet);
+    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
+      daemon_exit(daemons + daemon_index);
+  };
+
+  // Start up daemon and wallet
+  start_daemon_params daemon_params[NUM_DAEMONS]  = {};
+  {
+    LOKI_FOR_EACH(i, NUM_DAEMONS)
+      daemon_params[i].load_latest_hardfork_versions();
+
+    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.c_str);
+    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
+      EXPECT(result, daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
+
+    start_wallet_params wallet_params = {};
+    wallet_params.daemon              = daemons + 0;
+    wallet                            = create_and_start_wallet(daemon_params[0].nettype, wallet_params, result.name.c_str);
+    wallet_set_default_testing_settings(&wallet);
+  }
+
+  loki_addr my_addr = {};
+  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+  daemon_mine_n_blocks(daemons + 0, &wallet, 100);
+  helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS);
+
+  // Register the service node
+  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
+  {
+    daemon_prepare_registration_params params             = {};
+    params.contributors[params.num_contributors].addr     = my_addr;
+    params.contributors[params.num_contributors++].amount = 100;
+
+    loki_scratch_buf registration_cmd = {};
+    EXPECT(result, daemon_prepare_registration (daemons + daemon_index, &params, &registration_cmd), "Failed to prepare registration");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+  }
+
+  // Naughty daemon disconnects from the main chain by banning everyone
+  int naughty_daemon_index                   = NUM_DAEMONS - 1;
+  start_daemon_params *naughty_daemon_params = daemon_params + naughty_daemon_index;
+  daemon_t *naughty_daemon                   = daemons + naughty_daemon_index;
+  {
+    loki_buffer<32> ip("127.0.0.1");
+    daemon_ban(naughty_daemon, &ip);
+  }
+
+  // Mine registration and become service nodes and mine some blocks to create checkpoint votes
+  for (int unused_ = 0; unused_ < 20; unused_++)
+  {
+    daemon_mine_n_blocks(daemons + 0, &wallet, 1);
+    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
+    {
+      daemon_t *daemon = daemons + daemon_index;
+      daemon_relay_votes_and_uptime(daemon);
+    }
+    helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS - 1);
+  }
+
+  // Naughty daemon starts up and mines their chain secretly ahead of the canonical chain
+  {
+    start_wallet_params naughty_wallet_params = {};
+    naughty_wallet_params.daemon              = naughty_daemon;
+    wallet_t naughty_wallet                   = create_and_start_wallet(naughty_daemon_params->nettype, naughty_wallet_params, result.name.c_str);
+    wallet_set_default_testing_settings(&naughty_wallet);
+
+    uint64_t canonical_chain_height = daemon_status(daemons + 0).height;
+    daemon_mine_until_height(daemons + 0, &naughty_wallet, canonical_chain_height + 256);
+    wallet_exit(&naughty_wallet);
+  }
+
+  // Naughty daemon reconnects to the chain. All the other nodes should NOT
+  // reorg to this chain, but the naughty daemon should no longer be accepted.
+  {
+    loki_buffer<32> ip("127.0.0.1");
+    daemon_unban(naughty_daemon, &ip);
+  }
+
+  // TODO(doyle): This could be more robust by checking the top block hash
+  daemon_status_t daemon_0_status       = daemon_status(daemons + 0);
+  daemon_status_t naughty_daemon_status = daemon_status(naughty_daemon);
+  uint64_t target_blockchain_height     = daemon_0_status.height;
+  uint64_t naughty_height               = naughty_daemon_status.height;
+
+  // NOTE: Retry a couple of times to see if the daemon will reorg
+  for (int i = 0; i < 2 && naughty_height != target_blockchain_height; i++)
+  {
+    os_sleep_ms(1500);
+    naughty_daemon_status = daemon_status(naughty_daemon);
+    naughty_height        = naughty_daemon_status.height;
+  }
+
+  EXPECT(result, target_blockchain_height == naughty_height, "%zu == %zu, The naughty daemon who private mined a chain did not reorg to the checkpointed chain!", target_blockchain_height, naughty_height);
   return result;
 }
 
@@ -1358,133 +1490,6 @@ test_result latest__request_stake_unlock__disallow_request_twice()
 
   EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key), "Failed to request our first stake unlock");
   EXPECT(result, wallet_request_stake_unlock(&wallet, &snode_key) == false, "We've already requested our stake to unlock, the second time should fail");
-  return result;
-}
-
-test_result latest__service_node_checkpointing()
-{
-  test_result result = {};
-  INITIALISE_TEST_CONTEXT(result);
-
-  int const NUM_DAEMONS = 10;
-  loki_snode_key snode_keys[NUM_DAEMONS] = {};
-  daemon_t daemons[NUM_DAEMONS]          = {};
-  wallet_t wallet                        = {};
-  LOKI_DEFER
-  {
-    wallet_exit(&wallet);
-    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-      daemon_exit(daemons + daemon_index);
-  };
-
-  // Start up daemon and wallet
-  start_daemon_params daemon_params[NUM_DAEMONS]  = {};
-  {
-    LOKI_FOR_EACH(i, NUM_DAEMONS)
-      daemon_params[i].load_latest_hardfork_versions();
-
-    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.c_str);
-    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-      EXPECT(result, daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index), "We should be able to query the service node key, was the daemon launched in --service-node mode?");
-
-    start_wallet_params wallet_params = {};
-    wallet_params.daemon              = daemons + 0;
-    wallet                            = create_and_start_wallet(daemon_params[0].nettype, wallet_params, result.name.c_str);
-    wallet_set_default_testing_settings(&wallet);
-  }
-
-  loki_addr my_addr = {};
-  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
-  daemon_mine_n_blocks(daemons + 0, &wallet, 100);
-  helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS);
-
-  // Register the service node
-#if 1
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
-  {
-    daemon_prepare_registration_params params             = {};
-    params.contributors[params.num_contributors].addr     = my_addr;
-    params.contributors[params.num_contributors++].amount = 100;
-
-    loki_scratch_buf registration_cmd = {};
-    EXPECT(result, daemon_prepare_registration (daemons + daemon_index, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
-  }
-#endif
-
-  // Naughty daemon disconnects from the main chain
-  int naughty_daemon_index                   = NUM_DAEMONS - 1;
-  start_daemon_params *naughty_daemon_params = daemon_params + naughty_daemon_index;
-  daemon_t *naughty_daemon                   = daemons + naughty_daemon_index;
-  daemon_exit(naughty_daemon);
-
-  // Mine registration and become service nodes and mine some blocks to create checkpoint votes
-  daemon_mine_n_blocks(daemons + 0, &wallet, 20);
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
-  {
-    daemon_t *daemon = daemons + daemon_index;
-    daemon_relay_votes_and_uptime(daemon);
-  }
-  helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS - 1);
-
-  // Naughty daemon starts up and mines their chain secretly ahead of the canonical chain
-  {
-    start_daemon(naughty_daemon, 1, naughty_daemon_params, 1, result.name.c_str);
-    start_wallet_params naughty_wallet_params = {};
-    naughty_wallet_params.daemon              = naughty_daemon;
-    wallet_t naughty_wallet                   = create_and_start_wallet(naughty_daemon_params->nettype, naughty_wallet_params, result.name.c_str);
-    wallet_set_default_testing_settings(&naughty_wallet);
-
-    uint64_t canonical_chain_height = daemon_status(daemons + 0).height;
-    daemon_mine_until_height(daemons + 0, &naughty_wallet, canonical_chain_height + 20);
-    wallet_exit(&naughty_wallet);
-    daemon_exit(naughty_daemon);
-    os_sleep_s(2); // HACK: Wait for daemon to exit before starting up
-  }
-
-  // Naughty daemon reconnects to the chain. All the other nodes should NOT
-  // reorg to this chain, but the naughty daemon should no longer be accepted.
-#if 1
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
-  {
-    daemon_t const *canonical_daemon = daemons + daemon_index;
-    naughty_daemon_params->custom_cmd_line.append("--add-exclusive-node 127.0.0.1:%d ", canonical_daemon->p2p_port);
-  }
-  start_daemon(naughty_daemon, 1, naughty_daemon_params, 1, result.name.c_str);
-#else
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
-    daemon_exit(daemons + daemon_index);
-  os_sleep_s(5); // HACK: Wait for daemon to exit before starting up
-  start_daemon(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, "");
-#endif
-  // NOTE: Print all daemon checkpoints
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-  {
-    daemon_print_checkpoints(daemons + daemon_index);
-    daemon_status(daemons + daemon_index);
-  }
-
-  // NOTE: Trigger deletion of old checkpoints by mining atleast 60 blocks
-  daemon_mine_n_blocks(daemons + 0, &wallet, 60);
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS - 1)
-  {
-    daemon_t *daemon = daemons + daemon_index;
-    daemon_relay_votes_and_uptime(daemon);
-  }
-  helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS - 1);
-
-  // NOTE: Print all daemon checkpoints
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-  {
-    daemon_print_checkpoints(daemons + daemon_index);
-    daemon_status(daemons + daemon_index);
-  }
-
-  for (;;)
-  {
-    os_sleep_ms(1000);
-  }
-
   return result;
 }
 

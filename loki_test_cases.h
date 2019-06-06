@@ -8,6 +8,7 @@ struct test_result
   loki_buffer<512>  name;
   bool              failed;
   loki_scratch_buf  fail_msg;
+  float             duration_ms;
 };
 
 void        print_test_results(test_result const *results);
@@ -16,6 +17,8 @@ void        print_test_results(test_result const *results);
 // Latest
 //
 test_result foo();
+
+test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain();
 
 test_result latest__deregistration__n_unresponsive_node();
 
@@ -48,7 +51,6 @@ test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node();
 test_result latest__stake__disallow_staking_when_all_amounts_reserved();
 test_result latest__stake__disallow_to_non_registered_node();
 
-test_result latest__service_node_checkpointing();
 
 test_result latest__transfer__check_fee_amount_bulletproofs();
 

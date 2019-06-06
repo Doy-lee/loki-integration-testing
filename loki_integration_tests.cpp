@@ -163,6 +163,7 @@ itest_read_result itest_read_stdout(in_out_shared_mem *shared_mem)
     sem_post(shared_mem->stdout_ready_semaphore_handle);
   }
 
+
   result.buf.len = output_len;
   LOKI_ASSERT(result.buf.len <= result.buf.max());
 
@@ -229,21 +230,6 @@ void itest_read_until_then_write_stdin(in_out_shared_mem *shared_mem, loki_str_l
 {
   itest_read_stdout_until(shared_mem, find_str.str);
   itest_write_to_stdin(shared_mem, cmd);
-}
-
-void itest_read_stdout_for_ms(in_out_shared_mem *shared_mem, int time_ms)
-{
-  timespec time = {};
-  clock_gettime(CLOCK_REALTIME, &time);
-  time.tv_sec += LOKI_MS_TO_SECONDS(time_ms);
-
-  for (;;)
-  {
-    if (sem_timedwait(shared_mem->stdout_semaphore_handle, &time) == -1 && errno == ETIMEDOUT)
-      return;
-
-    sem_post(shared_mem->stdout_ready_semaphore_handle);
-  }
 }
 
 char const DAEMON_SHARED_MEM_NAME[] = "loki_integration_testing_daemon";
@@ -521,7 +507,9 @@ int main(int, char **)
   int const NUM_THREADS = 1;
 #endif
 
+  auto start_time = std::chrono::high_resolution_clock::now();
 #if 1
+  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -554,9 +542,8 @@ int main(int, char **)
   global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  // global_work_queue.jobs.push_back(latest__service_node_checkpointing);
   // global_work_queue.jobs.push_back(foo);
-  global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
+  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
 #endif
 
   std::vector<std::thread> threads;
@@ -568,7 +555,9 @@ int main(int, char **)
   for (int i = 0; i < NUM_THREADS; ++i)
     threads[i].join();
 
-  printf("\nTests passed %zu/%zu (using %d threads)\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size(), NUM_THREADS);
+  auto end_time = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+  printf("\nTests passed %zu/%zu (using %d threads) in %5.2fs\n\n", global_work_queue.num_jobs_succeeded.load(), global_work_queue.jobs.size(), NUM_THREADS, duration / 1000.f);
 
   return 0;
 }

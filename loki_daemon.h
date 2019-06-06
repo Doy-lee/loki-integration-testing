@@ -44,6 +44,8 @@ bool                daemon_mine_n_blocks        (daemon_t *daemon, wallet_t *wal
 void                daemon_mine_n_blocks        (daemon_t *daemon, loki_addr const *addr, int num_blocks);
 void                daemon_mine_until_height    (daemon_t *daemon, loki_addr const *addr, uint64_t desired_height);
 bool                daemon_mine_until_height    (daemon_t *daemon, wallet_t *wallet, uint64_t desired_height);
+bool                daemon_ban                  (daemon_t *daemon, loki_buffer<32> const *ip);
+bool                daemon_unban                (daemon_t *daemon, loki_buffer<32> const *ip);
 
 // NOTE: This command is only available in integration mode, compiled out otherwise in the daemon
 void                daemon_relay_votes_and_uptime(daemon_t *daemon);
@@ -67,6 +69,7 @@ static uint64_t amount_to_staking_portions(uint64_t amount)
 void daemon_exit(daemon_t *daemon)
 {
   itest_write_to_stdin(&daemon->shared_mem, "exit");
+  itest_read_stdout_sink(&daemon->shared_mem, 1); // TODO(doyle): Hack
   daemon->shared_mem.clean_up();
 }
 
@@ -399,6 +402,50 @@ bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desir
     wallet_refresh(wallet);
   }
   return result;
+}
+
+bool daemon_ban(daemon_t *daemon, loki_buffer<32> const *ip)
+{
+  loki_buffer<64> cmd("ban %s", ip->c_str);
+
+  // TODO(doyle): This relies on not muting the log levels in the integration binaries by setting the log categories to ""
+  // which we would parse to determine if the ban was successful for not
+#if 1
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Error: Invalid IP"), true},
+    {LOKI_STR_LIT("blocked"), false},
+  };
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+    return false;
+#else
+  itest_write_to_stdin(&daemon->shared_mem, cmd.c_str);
+  os_sleep_ms(100);
+#endif
+
+  return true;
+}
+
+bool daemon_unban(daemon_t *daemon, loki_buffer<32> const *ip)
+{
+  loki_buffer<64> cmd("unban %s", ip->c_str);
+#if 1
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Error: Invalid IP"), true},
+    {LOKI_STR_LIT("unblocked"), false},
+  };
+
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+    return false;
+#else
+  itest_write_to_stdin(&daemon->shared_mem, cmd.c_str);
+  os_sleep_ms(100);
+#endif
+
+  return true;
 }
 
 void daemon_relay_votes_and_uptime(daemon_t *daemon)

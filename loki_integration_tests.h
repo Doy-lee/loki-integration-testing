@@ -32,6 +32,12 @@
 using isize = ptrdiff_t;
 using usize = size_t;
 
+template <typename T, size_t N>    constexpr size_t    array_count  (T (&)[N]) { return N; }
+template <typename T, ptrdiff_t N> constexpr ptrdiff_t array_count_i(T (&)[N]) { return N; }
+template <typename T, size_t N>    constexpr size_t    char_count  (T (&)[N]) { return N - 1; }
+template <typename T, ptrdiff_t N> constexpr ptrdiff_t char_count_i(T (&)[N]) { return N - 1; }
+
+#define LOKI_ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOKI_ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #define LOKI_CHAR_COUNT(array) (LOKI_ARRAY_COUNT(array) - 1)
 #define LOKI_MIN(a, b) (((a) < (b)) ? (a) : (b))

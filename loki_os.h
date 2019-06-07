@@ -17,6 +17,7 @@ bool  os_file_delete    (char const *path);
 bool  os_file_dir_delete(char const *path);
 bool  os_file_dir_make  (char const *path);
 bool  os_file_exists    (char const *path, os_file_info *info = nullptr);
+bool  os_write_file     (char const *path, char const *buf, int buf_len);
 
 #if defined(LOKI_OS_IMPLEMENTATION)
 
@@ -152,6 +153,17 @@ bool os_file_exists(char const *path, os_file_info *info)
   }
   return true;
 #endif
+}
+
+bool os_write_file(char const *path, char const *buf, int buf_len)
+{
+  FILE *file = fopen(path, "w+");
+  if (!file)
+    return false;
+
+  fprintf(file, "%.*s", buf_len, buf);
+  fclose(file);
+  return true;
 }
 
 #endif // LOKI_OS_IMPLEMENTATION

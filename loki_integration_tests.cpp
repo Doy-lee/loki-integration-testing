@@ -480,7 +480,101 @@ void thread_to_task_dispatcher()
   }
 }
 
-int main(int, char **)
+static void print_help()
+{
+  fprintf(stdout, "\n");
+  fprintf(stdout, "Integration Test Startup Flags\n\n");
+  fprintf(stdout, "  --generate-blockchain         |                Generate a blockchain instead of running tests. Flags below are optionally specified.\n");
+  fprintf(stdout, "    --service-nodes     <value> | (Default: 0)   How many service nodes to generate in the blockchain\n");
+  fprintf(stdout, "    --daemons           <value> | (Default: 1)   How many normal daemons to generate in the blockchain\n");
+  fprintf(stdout, "    --wallets           <value> | (Default: 1)   How many wallets to generate for the blockchain\n");
+  fprintf(stdout, "    --wallet-balance    <value> | (Default: 100) How much Loki each wallet should have (non-atomic units)\n");
+  // fprintf(stdout, "  --num-blocks    <value> | (Default: 100) How many blocks to generate in the blockchain, minimum 100\n");
+}
+
+enum struct daemon_type
+{
+  normal,
+  service_node,
+};
+
+static void write_daemon_launch_script(helper_blockchain_environment const *environment, daemon_type type)
+{
+  daemon_t const *from  = nullptr;
+  int num_from          = 0;
+  daemon_t const *other = nullptr;
+  int num_other         = 0;
+
+  if (type == daemon_type::normal)
+  {
+    from  = environment->daemons;
+    other = environment->service_nodes;
+
+    num_from  = environment->num_daemons;
+    num_other = environment->num_service_nodes;
+  }
+  else
+  {
+    from  = environment->service_nodes;
+    other = environment->daemons;
+
+    num_from  = environment->num_service_nodes;
+    num_other = environment->num_daemons;
+  }
+
+  LOKI_FOR_EACH(daemon_index, num_from)
+  {
+    loki_scratch_buf cmd_line("~/Loki/Code/loki/build/Linux/ServiceNodeCheckpointing3/debug/bin/lokid ");
+    daemon_t const *daemon = from + daemon_index;
+    cmd_line.append("--data-dir daemon_%d ",  daemon->id);
+    cmd_line.append("--fixed-difficulty %d ", environment->daemon_param.fixed_difficulty);
+    cmd_line.append("--p2p-bind-port %d ", daemon->p2p_port);
+    cmd_line.append("--rpc-bind-port %d ", daemon->rpc_port);
+    cmd_line.append("--zmq-rpc-bind-port %d ", daemon->zmq_rpc_port);
+
+    if (environment->daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
+    else if (environment->daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
+
+    if (type == daemon_type::service_node) cmd_line.append("--service-node ");
+
+    LOKI_FOR_EACH(index, num_from)
+    {
+      daemon_t const *other_daemon = from + index;
+      if (index == daemon_index) continue;
+      cmd_line.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
+    }
+
+    LOKI_FOR_EACH(index, num_other)
+    {
+      daemon_t const *other_daemon = other + index;
+      cmd_line.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
+    }
+
+    loki_scratch_buf file_name("./output/");
+    file_name.append("daemon_");
+    file_name.append("%d", daemon->id);
+    if (type == daemon_type::service_node)
+      file_name.append("_service_node_%d", daemon_index);
+    file_name.append(".sh");
+
+    if (!os_write_file(file_name.c_str, cmd_line.c_str, cmd_line.len))
+    {
+      fprintf(stderr, "Failed to create daemon launcher script file: %s\n", file_name.c_str);
+      continue;
+    }
+  }
+}
+
+static void delete_old_blockchain_files()
+{
+  if (os_file_exists("./output/"))
+  {
+    os_file_dir_delete("./output");
+    os_file_dir_make("./output");
+  }
+}
+
+int main(int argc, char **argv)
 {
   // TODO(doyle):
   //  - locked transfers unlock after the locked time
@@ -493,13 +587,162 @@ int main(int, char **)
   //    which means when it fails, we need to step into the debugger and inspect
   //    the program to figure out why it failed.
 
-  // TODO(doyle): We can multithread dispatch these tests now with multidaemon/multiwallet support.
-  if (os_file_exists("./output/"))
+  if (argc > 1)
   {
-    os_file_dir_delete("./output");
-    os_file_dir_make("./output");
+    for (int i = 1; i < argc; i++)
+    {
+      char const *arg       = argv[i];
+      int arg_len           = strlen(arg);
+      char const HELP_ARG[] = "--help";
+
+      if (arg_len == char_count_i(HELP_ARG) && strncmp(arg, HELP_ARG, arg_len) == 0)
+      {
+        print_help();
+        return true;
+      }
+
+      char const GENERATE_ARG[] = "--generate-blockchain";
+      if (arg_len == char_count_i(GENERATE_ARG) && strncmp(arg, GENERATE_ARG, arg_len) == 0)
+      {
+        break;
+      }
+      else
+      {
+        fprintf(stderr, "Unrecognised argument %s\n\n", arg);
+        print_help();
+        return false;
+      }
+    }
+
+    int num_options = argc - 2;
+    if ((num_options % 2) != 0)
+    {
+      fprintf(stderr, "Invalid number of options, each --<option> should have a value associated with it, i.e. --option <value>\n");
+      return false;
+    }
+
+    int num_daemons       = 1;
+    int num_service_nodes = 0;
+    // int num_blocks        = MIN_BLOCKS_IN_BLOCKCHAIN;
+    int num_wallets            = 1;
+    int initial_wallet_balance = 1;
+
+    for (int i = 2; i < argc; i += 2)
+    {
+      char const *arg                 = argv[i];
+      int arg_len                     = strlen(arg);
+      char const SNODE_ARG[]          = "--service-nodes";
+      char const DAEMON_ARG[]         = "--daemons";
+      char const BLOCKS_ARG[]         = "--num-blocks";
+      char const WALLET_ARG[]         = "--wallets";
+      char const WALLET_BALANCE_ARG[] = "--wallet-balance";
+
+      char const *arg_val_str = argv[i + 1];
+      int arg_val             = atoi(arg_val_str);
+
+      enum struct arg_type
+      {
+        invalid,
+        service_nodes,
+        daemons,
+        num_blocks,
+        wallets,
+        wallet_balance,
+      };
+
+      arg_type type = arg_type::invalid;
+      if (arg_len == char_count_i(SNODE_ARG) && strncmp(arg, SNODE_ARG, arg_len) == 0)
+      {
+        type = arg_type::service_nodes;
+      }
+      else if (arg_len == char_count_i(DAEMON_ARG) && strncmp(arg, DAEMON_ARG, arg_len) == 0)
+      {
+        type = arg_type::daemons;
+      }
+      else if (arg_len == char_count_i(BLOCKS_ARG) && strncmp(arg, BLOCKS_ARG, arg_len) == 0)
+      {
+        type = arg_type::num_blocks;
+      }
+      else if (arg_len == char_count_i(WALLET_ARG) && strncmp(arg, WALLET_ARG, arg_len) == 0)
+      {
+        type = arg_type::wallets;
+      }
+      else if (arg_len == char_count_i(WALLET_BALANCE_ARG) && strncmp(arg, WALLET_BALANCE_ARG, arg_len) == 0)
+      {
+        type = arg_type::wallet_balance;
+      }
+      else
+      {
+        fprintf(stderr, "Unrecognised argument %s with value %s\n", arg, arg_val_str);
+        return false;
+      }
+
+      if (arg_val < 0)
+      {
+        fprintf(stderr, "Argument %s has invalid value %s\n", arg, arg_val_str);
+        return false;
+      }
+
+      if (type == arg_type::service_nodes)
+      {
+        num_service_nodes = arg_val;
+      }
+      else if (type == arg_type::daemons)
+      {
+        num_daemons = arg_val;
+      }
+      else if (type == arg_type::num_blocks)
+      {
+        if (arg_val < 100)
+        {
+          fprintf(stdout, "Warning: Num blocks specified less than 100: %d, the minimum is 100. Overriding to 100\n", arg_val);
+          arg_val = 100;
+        }
+        // num_blocks = arg_val;
+      }
+      else if (type == arg_type::wallets)
+      {
+        num_wallets = arg_val;
+      }
+      else if (type == arg_type::wallet_balance)
+      {
+        initial_wallet_balance = arg_val;
+      }
+    }
+
+    delete_old_blockchain_files();
+    test_result context = {};
+    INITIALISE_TEST_CONTEXT(context);
+
+    start_daemon_params params                = {};
+    params.keep_terminal_open                 = true;
+    helper_blockchain_environment environment = {};
+    helper_setup_blockchain(&environment, &context, params, num_service_nodes, num_daemons, num_wallets, initial_wallet_balance);
+    helper_cleanup_blockchain_environment(&environment);
+
+    write_daemon_launch_script(&environment, daemon_type::normal);
+    write_daemon_launch_script(&environment, daemon_type::service_node);
+
+    for (wallet_t &wallet : environment.wallets)
+    {
+      loki_scratch_buf cmd_line("~/Loki/Code/loki/build/Linux/ServiceNodeCheckpointing3/debug/bin/loki-wallet-cli --daemon-address 127.0.0.1:2222 --wallet-file wallet_%d --password '' ", wallet.id);
+      if (environment.daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
+      else if (environment.daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
+
+      loki_scratch_buf file_name("./output/wallet_%d.sh", wallet.id);
+      if (!os_write_file(file_name.c_str, cmd_line.c_str, cmd_line.len))
+      {
+        fprintf(stderr, "Failed to create daemon launcher script file: %s\n", file_name.c_str);
+        return false;
+      }
+    }
+
+    os_launch_process("chmod +x ./output/daemon_*.sh");
+    os_launch_process("chmod +x ./output/wallet_*.sh");
+    return true;
   }
 
+  delete_old_blockchain_files();
   printf("\n");
 #if 1
   int const NUM_THREADS = (int)std::thread::hardware_concurrency();
@@ -508,7 +751,7 @@ int main(int, char **)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
-#if 0
+#if 1
   global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
   global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);

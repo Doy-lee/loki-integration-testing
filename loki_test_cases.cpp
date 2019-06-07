@@ -1,6 +1,3 @@
-#include <chrono>
-#include <vector>
-
 #include "loki_test_cases.h"
 
 #define LOKI_WALLET_IMPLEMENTATION
@@ -52,13 +49,6 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
   "LEGbch6JYiUjX3ebUvVZZNiU2wNT3SBD4DZgGH9xN56VGq4obkGsKEF8zGLBXiNnFv5dzQX1Yg1Yx99YSgg4GDaZKw6zxcA",
 };
 
-// NOTE: The minimum amount such that spending funds is reliable and doesn't
-// error out with insufficient outputs to select from.
-// NOTE: This used to be much lower, like 100, but after the output selection
-// algorithm changed, the fake outputs lineup commit this seems to be a lot
-// stricter now
-const int MIN_BLOCKS_IN_BLOCKCHAIN = 100;
-
 void print_test_results(test_result const *test)
 {
   int const TARGET_LEN = 76;
@@ -86,15 +76,7 @@ struct loki_err_context
   operator bool() { return success; }
 };
 
-#define INITIALISE_TEST_CONTEXT(test_result_var)                               \
-  test_result_var.name = loki_buffer<512>(__func__);                           \
-  auto start_time = std::chrono::high_resolution_clock::now();                 \
-  LOKI_DEFER {                                                                 \
-    auto end_time = std::chrono::high_resolution_clock::now();                 \
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time) .count(); \
-    test_result_var.duration_ms = duration / 1000.f; \
-  }
-
+// TODO(doyle): Deprecate and remove all helpers except the flexible one.
 //
 // NOTE: Helpers
 //
@@ -165,34 +147,27 @@ void helper_block_until_blockchains_are_synced(daemon_t *daemons, int num_daemon
   }
 }
 
-// TODO(doyle): Switch most setup to using this helper, since it covers almost all use cases
-struct helper_blockchain_environment
-{
-  std::vector<daemon_t>       all_daemons;
-  daemon_t                   *service_nodes;
-  int                         num_service_nodes;
-  daemon_t                   *daemons;
-  int                         num_daemons;
-  std::vector<loki_snode_key> snode_keys;
-  wallet_t                    wallet;
-  loki_addr                   wallet_addr;
-};
-
 void helper_cleanup_blockchain_environment(helper_blockchain_environment *environment)
 {
   for (daemon_t &daemon : environment->all_daemons)
     daemon_exit(&daemon);
-  wallet_exit(&environment->wallet);
+
+  for (wallet_t &wallet : environment->wallets)
+    wallet_exit(&wallet);
 }
 
 bool helper_setup_blockchain(helper_blockchain_environment *environment,
                              test_result const *context,
                              start_daemon_params daemon_param,
                              int num_service_nodes,
-                             int num_daemons)
+                             int num_daemons,
+                             int num_wallets,
+                             int wallet_balance)
 {
   assert(num_service_nodes + num_daemons > 0);
+  assert(num_wallets > 0);
   environment->all_daemons.resize(num_service_nodes + num_daemons);
+  environment->daemon_param = daemon_param;
 
   if (num_service_nodes)
   {
@@ -218,35 +193,44 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
     }
   }
 
+  environment->wallets.resize(num_wallets);
+  environment->wallets_addr.resize(num_wallets);
+  LOKI_FOR_EACH (wallet_index, num_wallets)
   {
+    wallet_t *wallet       = &environment->wallets[wallet_index];
+    loki_addr *wallet_addr = &environment->wallets_addr[wallet_index];
+
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = all_daemons + 0;
-    environment->wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.c_str);
-    wallet_set_default_testing_settings(&environment->wallet);
+    *wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.c_str);
+    wallet_set_default_testing_settings(wallet);
 
-    if (!wallet_address(&environment->wallet, 0, &environment->wallet_addr))
+    if (!wallet_address(wallet, 0, wallet_addr))
       return false;
+
+    wallet_mine_until_unlocked_balance(wallet, all_daemons + 0, wallet_balance);
   }
 
-  daemon_mine_n_blocks(all_daemons + 0, &environment->wallet, MIN_BLOCKS_IN_BLOCKCHAIN);
+
+  daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], MIN_BLOCKS_IN_BLOCKCHAIN);
   helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
 
   // Register the service node
   LOKI_FOR_EACH(daemon_index, environment->num_service_nodes)
   {
     daemon_prepare_registration_params params             = {};
-    params.contributors[params.num_contributors].addr     = environment->wallet_addr;
+    params.contributors[params.num_contributors].addr     = environment->wallets_addr[0];
     params.contributors[params.num_contributors++].amount = 100;
 
     loki_scratch_buf registration_cmd = {};
     if (!daemon_prepare_registration(&environment->service_nodes[daemon_index], &params, &registration_cmd) ||
-        !wallet_register_service_node(&environment->wallet, registration_cmd.c_str))
+        !wallet_register_service_node(&environment->wallets[0], registration_cmd.c_str))
     {
       return false;
     }
   }
 
-  daemon_mine_n_blocks(all_daemons + 0, &environment->wallet, 1);
+  daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], 1);
   helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
   return true;
 }

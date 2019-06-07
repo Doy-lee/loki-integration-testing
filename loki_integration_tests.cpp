@@ -482,7 +482,6 @@ void thread_to_task_dispatcher()
 
 static void print_help()
 {
-  fprintf(stdout, "\n");
   fprintf(stdout, "Integration Test Startup Flags\n\n");
   fprintf(stdout, "  --generate-blockchain         |                Generate a blockchain instead of running tests. Flags below are optionally specified.\n");
   fprintf(stdout, "    --service-nodes     <value> | (Default: 0)   How many service nodes to generate in the blockchain\n");
@@ -524,7 +523,7 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
 
   LOKI_FOR_EACH(daemon_index, num_from)
   {
-    loki_scratch_buf cmd_line("~/Loki/Code/loki/build/Linux/ServiceNodeCheckpointing3/debug/bin/lokid ");
+    loki_scratch_buf cmd_line("./lokid ");
     daemon_t const *daemon = from + daemon_index;
     cmd_line.append("--data-dir daemon_%d ",  daemon->id);
     cmd_line.append("--fixed-difficulty %d ", environment->daemon_param.fixed_difficulty);
@@ -725,7 +724,7 @@ int main(int argc, char **argv)
 
     for (wallet_t &wallet : environment.wallets)
     {
-      loki_scratch_buf cmd_line("~/Loki/Code/loki/build/Linux/ServiceNodeCheckpointing3/debug/bin/loki-wallet-cli --daemon-address 127.0.0.1:2222 --wallet-file wallet_%d --password '' ", wallet.id);
+      loki_scratch_buf cmd_line("./loki-wallet-cli --daemon-address 127.0.0.1:2222 --wallet-file wallet_%d --password '' ", wallet.id);
       if (environment.daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
       else if (environment.daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
 

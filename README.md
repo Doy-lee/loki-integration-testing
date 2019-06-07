@@ -33,6 +33,7 @@ Integration Test Startup Flags
     --daemons           <value> | (Default: 1)   How many normal daemons to generate in the blockchain
     --wallets           <value> | (Default: 1)   How many wallets to generate for the blockchain
     --wallet-balance    <value> | (Default: 100) How much Loki each wallet should have (non-atomic units)
+    --fixed-difficulty  <value> | (Default: 1)   Blocks should be mined with set difficulty, 0 to use the normal difficulty algorithm
 ```
 
 For example the line

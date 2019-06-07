@@ -388,7 +388,7 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
     {LOKI_STR_LIT("Error: refresh failed: unexpected error: proxy exception in refresh thread"), true},
     {LOKI_STR_LIT("Balance"),               false},
   };
-  
+
   itest_read_possible_value const *proxy_exception_error = possible_values + 1;
   itest_read_result read_result = itest_read_stdout_until(&result.shared_mem, possible_values, LOKI_ARRAY_COUNT(possible_values));
   LOKI_ASSERT_MSG(!str_find(read_result.buf.c_str, proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
@@ -490,6 +490,7 @@ static void print_help()
   fprintf(stdout, "    --daemons           <value> | (Default: 1)   How many normal daemons to generate in the blockchain\n");
   fprintf(stdout, "    --wallets           <value> | (Default: 1)   How many wallets to generate for the blockchain\n");
   fprintf(stdout, "    --wallet-balance    <value> | (Default: 100) How much Loki each wallet should have (non-atomic units)\n");
+  fprintf(stdout, "    --fixed-difficulty  <value> | (Default: 1)   Blocks should be mined with set difficulty, 0 to use the normal difficulty algorithm\n");
   // fprintf(stdout, "  --num-blocks    <value> | (Default: 100) How many blocks to generate in the blockchain, minimum 100\n");
 }
 
@@ -627,6 +628,7 @@ int main(int argc, char **argv)
     // int num_blocks        = MIN_BLOCKS_IN_BLOCKCHAIN;
     int num_wallets            = 1;
     int initial_wallet_balance = 1;
+    int fixed_difficulty       = 1;
 
     for (int i = 2; i < argc; i += 2)
     {
@@ -637,6 +639,7 @@ int main(int argc, char **argv)
       char const BLOCKS_ARG[]         = "--num-blocks";
       char const WALLET_ARG[]         = "--wallets";
       char const WALLET_BALANCE_ARG[] = "--wallet-balance";
+      char const FIXED_DIFF_ARG[]     = "--fixed-difficulty";
 
       char const *arg_val_str = argv[i + 1];
       int arg_val             = atoi(arg_val_str);
@@ -649,6 +652,7 @@ int main(int argc, char **argv)
         num_blocks,
         wallets,
         wallet_balance,
+        fixed_difficulty,
       };
 
       arg_type type = arg_type::invalid;
@@ -672,6 +676,10 @@ int main(int argc, char **argv)
       {
         type = arg_type::wallet_balance;
       }
+      else if (arg_len == char_count_i(FIXED_DIFF_ARG) && strncmp(arg, FIXED_DIFF_ARG, arg_len) == 0)
+      {
+        type = arg_type::fixed_difficulty;
+      }
       else
       {
         fprintf(stderr, "Unrecognised argument %s with value %s\n", arg, arg_val_str);
@@ -680,8 +688,14 @@ int main(int argc, char **argv)
 
       if (arg_val < 0)
       {
-        fprintf(stderr, "Argument %s has invalid value %s\n", arg, arg_val_str);
-        return false;
+        if (type == arg_type::fixed_difficulty && arg_val == 0) // TODO(doyle): oh boi. getting messy
+        {
+        }
+        else
+        {
+          fprintf(stderr, "Argument %s has invalid value %s\n", arg, arg_val_str);
+          return false;
+        }
       }
 
       if (type == arg_type::service_nodes)
@@ -709,6 +723,10 @@ int main(int argc, char **argv)
       {
         initial_wallet_balance = arg_val;
       }
+      else if (type == arg_type::fixed_difficulty)
+      {
+        fixed_difficulty = arg_val;
+      }
     }
 
     delete_old_blockchain_files();
@@ -716,6 +734,7 @@ int main(int argc, char **argv)
     INITIALISE_TEST_CONTEXT(context);
 
     start_daemon_params params                = {};
+    params.fixed_difficulty                   = fixed_difficulty;
     helper_blockchain_environment environment = {};
     helper_setup_blockchain(&environment, &context, params, num_service_nodes, num_daemons, num_wallets, initial_wallet_balance);
     helper_cleanup_blockchain_environment(&environment);

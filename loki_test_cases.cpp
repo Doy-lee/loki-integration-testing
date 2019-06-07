@@ -212,8 +212,17 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
   }
 
 
-  daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], MIN_BLOCKS_IN_BLOCKCHAIN);
-  helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
+  for (size_t i = 0; i < MIN_BLOCKS_IN_BLOCKCHAIN; i++)
+  {
+    daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], 1);
+    LOKI_FOR_EACH(daemon_index, total_daemons)
+    {
+      daemon_t *daemon = all_daemons + daemon_index;
+      daemon_relay_votes_and_uptime(daemon);
+    }
+
+    helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
+  }
 
   // Register the service node
   LOKI_FOR_EACH(daemon_index, environment->num_service_nodes)

@@ -250,6 +250,8 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
     arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
+    arg_buf.append("--storage-server-port 4444 ");
+    arg_buf.append("--sn-public-ip 123.123.123.123 ");
 
     if (num_daemons == 1)
       arg_buf.append("--offline ");

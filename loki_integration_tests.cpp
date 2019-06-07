@@ -714,7 +714,6 @@ int main(int argc, char **argv)
     INITIALISE_TEST_CONTEXT(context);
 
     start_daemon_params params                = {};
-    params.keep_terminal_open                 = true;
     helper_blockchain_environment environment = {};
     helper_setup_blockchain(&environment, &context, params, num_service_nodes, num_daemons, num_wallets, initial_wallet_balance);
     helper_cleanup_blockchain_environment(&environment);

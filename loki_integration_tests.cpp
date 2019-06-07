@@ -25,11 +25,11 @@ enum struct terminal_type_t
 #define XTERM_CMD 1
 
 #if LXTERMINAL_CMD
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d %s\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d %s\" -e bash -c \"/home/loki/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
 #elif XTERM_CMD
-char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d %s\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/lokid %s; %s \"";
-char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"/home/doyle/Loki/Code/loki-integration-testing/bin/loki-wallet-cli %s; %s \"";
+char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
 #endif
 
 struct state_t

@@ -430,7 +430,6 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
 
   start_daemon_params daemon_params = {};
   daemon_params.fixed_difficulty    = 1;
-  daemon_params.keep_terminal_open  = true;
   daemon_params.load_latest_hardfork_versions();
 
   int const NUM_DAEMONS                  = (LOKI_CHECKPOINT_QUORUM_SIZE * 2) + 1;

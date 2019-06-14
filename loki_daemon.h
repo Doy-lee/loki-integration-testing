@@ -232,8 +232,15 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
 {
   daemon_snode_status result = {};
   loki_buffer<256> cmd("print_sn %s", key->c_str);
-  itest_read_result output = itest_write_then_read_stdout(&daemon->shared_mem, cmd.c_str);
-  if (str_find(output.buf.c_str, "No service node is currently known on the network"))
+
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("No service node is currently known on the network"), true},
+    {LOKI_STR_LIT("Service Node Registration State"), false},
+  };
+
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return result;
 
   char const *registration_label        = str_find(output.buf.c_str, "Service Node Registration State");

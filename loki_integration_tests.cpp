@@ -537,7 +537,12 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
     if (environment->daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
     else if (environment->daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
 
-    if (type == daemon_type::service_node) cmd_line.append("--service-node ");
+    if (type == daemon_type::service_node) 
+    {
+      cmd_line.append("--service-node ");
+      cmd_line.append("--sn-public-ip 123.123.123.123 ");
+      cmd_line.append("--storage-server-port 8080 ");
+    }
 
     LOKI_FOR_EACH(index, num_from)
     {
@@ -806,7 +811,8 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
   // global_work_queue.jobs.push_back(foo);
-  global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
+  // global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
+  global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
 #endif
 
   std::vector<std::thread> threads;

@@ -60,6 +60,9 @@ test_result foo();
 
 test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain();
 test_result latest__checkpointing__new_peer_syncs_checkpoints();
+test_result latest__checkpointing__deregister_non_participating_peer();
+
+test_result latest__decommission__recommission_on_uptime_proof();
 
 test_result latest__deregistration__n_unresponsive_node();
 

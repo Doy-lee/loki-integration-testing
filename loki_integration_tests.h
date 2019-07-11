@@ -103,7 +103,7 @@ struct loki_buffer
   int  len;
 };
 
-using loki_scratch_buf = loki_buffer<32768>;
+using loki_scratch_buf = loki_buffer<65536>;
 
 struct loki_str_lit
 {
@@ -161,7 +161,6 @@ itest_read_result itest_read_stdout                 (in_out_shared_mem *shared_m
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, char const *find_str);
 itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len);
 void              itest_read_until_then_write_stdin (in_out_shared_mem *shared_mem, loki_str_lit find_str, char const *cmd);
-void              itest_read_stdout_for_ms          (in_out_shared_mem *shared_mem, int time_ms);
 void              itest_reset_shared_memory         (in_out_shared_mem *shared_mem);
 
 //
@@ -178,16 +177,20 @@ const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFIC
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_FAKENET = 30;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
 const int      LOKI_REORG_SAFETY_BUFFER                     = 20;
-const int      LOKI_QUORUM_SIZE                             = 10;
-const int      LOKI_CHECKPOINT_QUORUM_SIZE                  = 10;
+const int      LOKI_STATE_CHANGE_QUORUM_SIZE                = 5;
+const int      LOKI_CHECKPOINT_QUORUM_SIZE                  = 5;
 const int      LOKI_MAX_NUM_CONTRIBUTORS                    = 4;
 const int      LOKI_MAX_LOCKED_KEY_IMAGES                   = LOKI_MAX_NUM_CONTRIBUTORS * 1;
+const int      LOKI_VOTE_LIFETIME                           = 60;
+const int      LOKI_CHECKPOINT_INTERVAL                     = 4;
+const int      LOKI_DECOMMISSION_INITIAL_CREDIT             = 60;
 
 using loki_key_image                                        = loki_buffer<64  + 1>;
 using loki_transaction_id                                   = loki_buffer<64  + 1>;
 using loki_snode_key                                        = loki_buffer<64  + 1>;
 using loki_payment_id16                                     = loki_buffer<16  + 1>;
 using loki_payment_id64                                     = loki_buffer<64  + 1>;
+using loki_hash64                                           = loki_buffer<64  + 1>;
 
 struct loki_addr
 {

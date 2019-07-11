@@ -23,7 +23,7 @@ char const *str_skip_to_next_alphanum          (char const *src);
 char const *str_skip_to_next_alpha_char        (char const *src);
 char const *str_skip_to_next_whitespace        (char const *src);
 char const *str_skip_to_next_whitespace_inplace(char const *src);
-char const *str_skip_to_next_word              (char const **src);
+char const *str_skip_to_next_word_inplace      (char const **src);
 char const *str_skip_to_next_word              (char const *src);
 char const *str_skip_whitespace                (char const *src);
 
@@ -156,7 +156,7 @@ char const *str_skip_to_next_whitespace_inplace(char const **src)
   return *result;
 }
 
-char const *str_skip_to_next_word(char const **src)
+char const *str_skip_to_next_word_inplace(char const **src)
 {
   while ((*src) && !char_is_whitespace((*src)[0])) ++(*src);
   while ((*src) &&  char_is_whitespace((*src)[0])) ++(*src);

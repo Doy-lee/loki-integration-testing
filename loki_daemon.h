@@ -27,29 +27,52 @@ struct daemon_snode_status
 {
   bool known_on_the_network;
   bool registered;
+  bool decommissioned;
+  bool last_uptime_proof_received;
 };
 
-void                daemon_exit                 (daemon_t *daemon);
-bool                daemon_prepare_registration (daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
-void                daemon_print_checkpoints    (daemon_t *daemon);
-uint64_t            daemon_print_height         (daemon_t *daemon);
-daemon_snode_status daemon_print_sn             (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
-bool                daemon_print_sn_key         (daemon_t *daemon, loki_snode_key *key);
-daemon_snode_status daemon_print_sn_status      (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
-uint64_t            daemon_print_sr             (daemon_t *daemon, uint64_t height);
-bool                daemon_print_tx             (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
-void                daemon_print_cn             (daemon_t *daemon);
-bool                daemon_relay_tx             (daemon_t *daemon, char const *tx_id);
-bool                daemon_mine_n_blocks        (daemon_t *daemon, wallet_t *wallet, int num_blocks);
-void                daemon_mine_n_blocks        (daemon_t *daemon, loki_addr const *addr, int num_blocks);
-void                daemon_mine_until_height    (daemon_t *daemon, loki_addr const *addr, uint64_t desired_height);
-bool                daemon_mine_until_height    (daemon_t *daemon, wallet_t *wallet, uint64_t desired_height);
-bool                daemon_ban                  (daemon_t *daemon, loki_buffer<32> const *ip);
-bool                daemon_unban                (daemon_t *daemon, loki_buffer<32> const *ip);
+struct daemon_checkpoint
+{
+  bool        service_node_checkpoint;
+  uint64_t    height;
+  loki_hash64 block_hash;
+
+  bool operator==(daemon_checkpoint const &other) const
+  {
+    bool result = (service_node_checkpoint == other.service_node_checkpoint && height == other.height &&
+                   block_hash == other.block_hash);
+    return result;
+  }
+};
+
+void                           daemon_exit                 (daemon_t *daemon);
+bool                           daemon_prepare_registration (daemon_t *daemon, daemon_prepare_registration_params const *params, loki_scratch_buf *registration_cmd);
+std::vector<daemon_checkpoint> daemon_print_checkpoints    (daemon_t *daemon);
+uint64_t                       daemon_print_height         (daemon_t *daemon);
+daemon_snode_status            daemon_print_sn             (daemon_t *daemon, loki_snode_key const *key); // TODO(doyle): We can't request the entire sn list because this needs a big buffer and I cbb doing mem management over shared mem
+bool                           daemon_print_sn_key         (daemon_t *daemon, loki_snode_key *key);
+daemon_snode_status            daemon_print_sn_status      (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
+uint64_t                       daemon_print_sr             (daemon_t *daemon, uint64_t height);
+bool                           daemon_print_tx             (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
+void                           daemon_print_cn             (daemon_t *daemon);
+bool                           daemon_relay_tx             (daemon_t *daemon, char const *tx_id);
+bool                           daemon_ban                  (daemon_t *daemon, loki_buffer<32> const *ip);
+bool                           daemon_unban                (daemon_t *daemon, loki_buffer<32> const *ip);
+bool                           daemon_set_log              (daemon_t *daemon, int level);
+daemon_status_t                daemon_status                (daemon_t *daemon);
 
 // NOTE: This command is only available in integration mode, compiled out otherwise in the daemon
 void                daemon_relay_votes_and_uptime(daemon_t *daemon);
-daemon_status_t     daemon_status                (daemon_t *daemon);
+
+// NOTE: Debug integration_test <sub cmd>, style of commands enabled in integration mode
+bool                daemon_mine_n_blocks           (daemon_t *daemon, wallet_t *wallet, int num_blocks);
+void                daemon_mine_n_blocks           (daemon_t *daemon, loki_addr const *addr, int num_blocks);
+void                daemon_mine_until_height       (daemon_t *daemon, loki_addr const *addr, uint64_t desired_height);
+bool                daemon_mine_until_height       (daemon_t *daemon, wallet_t *wallet, uint64_t desired_height);
+void                daemon_toggle_checkpoint_quorum(daemon_t *daemon);
+void                daemon_toggle_obligation_quorum(daemon_t *daemon);
+void                daemon_toggle_obligation_uptime_proof(daemon_t *daemon);
+void                daemon_toggle_obligation_checkpointing(daemon_t *daemon);
 
 #endif // LOKI_DAEMON_H
 
@@ -73,9 +96,37 @@ void daemon_exit(daemon_t *daemon)
   daemon->shared_mem.clean_up();
 }
 
-void daemon_print_checkpoints(daemon_t *daemon)
+std::vector<daemon_checkpoint> daemon_print_checkpoints(daemon_t *daemon)
 {
-  itest_write_then_read_stdout_until(&daemon->shared_mem, "print_checkpoints", LOKI_STR_LIT("Checkpoint"));
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("No Checkpoints"), true},
+    {LOKI_STR_LIT("Type"), false},
+  };
+
+  std::vector<daemon_checkpoint> result;
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "print_checkpoints", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[output.matching_find_strs_index].is_fail_msg)
+    return result;
+
+  char const *ptr = output.buf.c_str;
+  for (ptr = str_find(ptr, "Type: "); ptr; ptr = str_find(ptr, "Type: "))
+  {
+    char const *type_value   = str_skip_to_next_word_inplace(&ptr);
+    ptr                      = str_find(ptr, "Height: ");
+    char const *height_value = str_skip_to_next_word_inplace(&ptr);
+    ptr                      = str_find(ptr, "Hash: ");
+    char const *hash_value   = str_skip_to_next_word_inplace(&ptr);
+
+    daemon_checkpoint checkpoint       = {};
+    checkpoint.service_node_checkpoint = (strcmp(type_value, "ServiceNode") == 0);
+    checkpoint.height                  = atoi(height_value);
+    checkpoint.block_hash              = hash_value;
+
+    result.push_back(checkpoint);
+  }
+
+  return result;
 }
 
 uint64_t daemon_print_height(daemon_t *daemon)
@@ -121,8 +172,8 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       char const *ptr          = register_str;
       result                  &= (register_str != nullptr);
 
-      char const *owner_fee_output      = str_skip_to_next_word(&ptr);
-      char const *owner_addr_output     = str_skip_to_next_word(&ptr);
+      char const *owner_fee_output      = str_skip_to_next_word_inplace(&ptr);
+      char const *owner_addr_output     = str_skip_to_next_word_inplace(&ptr);
       // char const *owner_portions_output = str_skip_to_next_word(&ptr);
 
       result &= str_match(owner_fee_output,      owner_fee.c_str);
@@ -145,9 +196,9 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       char const *prev         = register_str;
       result                  &= (register_str != nullptr);
 
-      char const *owner_fee_output      = str_skip_to_next_word(&prev);
-      char const *owner_addr_output     = str_skip_to_next_word(&prev);
-      char const *owner_portions_output = str_skip_to_next_word(&prev);
+      char const *owner_fee_output      = str_skip_to_next_word_inplace(&prev);
+      char const *owner_addr_output     = str_skip_to_next_word_inplace(&prev);
+      char const *owner_portions_output = str_skip_to_next_word_inplace(&prev);
 
       result &= str_match(register_str,          "register_service_node");
       result &= str_match(owner_fee_output,      "18446744073709551612");
@@ -186,7 +237,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
 
-    char const *owner_fee_output  = str_skip_to_next_word(&ptr);
+    char const *owner_fee_output  = str_skip_to_next_word_inplace(&ptr);
     // TODO(doyle): Hack handle owner fees better
     if (params->owner_fee_percent == 100)
     {
@@ -200,9 +251,9 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     for (int i = 0; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
-      char const *addr_output             = str_skip_to_next_word(&ptr);
+      char const *addr_output             = str_skip_to_next_word_inplace(&ptr);
       result                             &= str_match(addr_output,contributor->addr.buf.c_str);
-      char const *portions_output         = str_skip_to_next_word(&ptr);
+      char const *portions_output         = str_skip_to_next_word_inplace(&ptr);
       loki_buffer<32> contributor_portions("%zu", amount_to_staking_portions(contributor->amount));
       (void)portions_output; (void)contributor_portions;
 
@@ -243,12 +294,16 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return result;
 
-  char const *registration_label        = str_find(output.buf.c_str, "Service Node Registration State");
+  char const *ptr                       = output.buf.c_str;
+  char const *registration_label        = str_find(ptr, "Service Node Registration State");
   char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
   int num_registered_snodes             = atoi(num_registered_snodes_str);
+  char const *decommissioned_str        = str_find(ptr, "Current Status: DECOMMISSIONED");
 
-  result.known_on_the_network = true;
-  result.registered           = (num_registered_snodes == 1);
+  result.known_on_the_network       = true;
+  result.last_uptime_proof_received = (str_find(ptr, "Last Uptime Proof Received: Not Received Yet") == nullptr);
+  result.registered                 = (num_registered_snodes == 1);
+  result.decommissioned             = (decommissioned_str != nullptr);
   return result;
 }
 
@@ -371,46 +426,6 @@ bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
   return true;
 }
 
-bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
-{
-  loki_addr addr = {};
-  bool result    = wallet_address(wallet, 0, &addr);
-  if (result)
-  {
-    daemon_mine_n_blocks(daemon, &addr, num_blocks);
-    wallet_refresh(wallet);
-  }
-  return result;
-}
-
-void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_blocks)
-{
-  loki_buffer<256> cmd("debug_mine_n_blocks %s %d", addr->buf.c_str, num_blocks);
-  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Mining stopped in daemon"));
-}
-
-void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t desired_height)
-{
-  daemon_status_t status = daemon_status(daemon);
-  if (desired_height < status.height)
-    return;
-
-  uint64_t blocks_to_mine = desired_height - status.height;
-  daemon_mine_n_blocks(daemon, addr, blocks_to_mine);
-}
-
-bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desired_height)
-{
-  loki_addr addr = {};
-  bool result    = wallet_address(wallet, 0, &addr);
-  if (result)
-  {
-    daemon_mine_until_height(daemon, &addr, desired_height);
-    wallet_refresh(wallet);
-  }
-  return result;
-}
-
 bool daemon_ban(daemon_t *daemon, loki_buffer<32> const *ip)
 {
   loki_buffer<64> cmd("ban %s", ip->c_str);
@@ -455,6 +470,22 @@ bool daemon_unban(daemon_t *daemon, loki_buffer<32> const *ip)
   return true;
 }
 
+bool daemon_set_log(daemon_t *daemon, int level)
+{
+  loki_buffer<64> cmd("set_log %d", level);
+
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Log level is now"), false},
+  };
+
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+    return false;
+
+  return true;
+}
+
 void daemon_relay_votes_and_uptime(daemon_t *daemon)
 {
   itest_write_then_read_stdout_until(&daemon->shared_mem, "relay_votes_and_uptime", LOKI_STR_LIT("Votes and uptime relayed"));
@@ -480,6 +511,70 @@ daemon_status_t daemon_status(daemon_t *daemon)
   assert(ptr && char_is_num(ptr[0]));
   result.hf_version = atoi(ptr);
   return result;
+}
+
+bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
+{
+  loki_addr addr = {};
+  bool result    = wallet_address(wallet, 0, &addr);
+  if (result)
+  {
+    daemon_mine_n_blocks(daemon, &addr, num_blocks);
+    wallet_refresh(wallet);
+  }
+  return result;
+}
+
+void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_blocks)
+{
+  loki_buffer<256> cmd("integration_test debug_mine_n_blocks %s %d", addr->buf.c_str, num_blocks);
+  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Mining stopped in daemon"));
+}
+
+void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t desired_height)
+{
+  daemon_status_t status = daemon_status(daemon);
+  if (desired_height < status.height)
+    return;
+
+  uint64_t blocks_to_mine = desired_height - status.height;
+  daemon_mine_n_blocks(daemon, addr, blocks_to_mine);
+}
+
+bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desired_height)
+{
+  loki_addr addr = {};
+  bool result    = wallet_address(wallet, 0, &addr);
+  if (result)
+  {
+    daemon_mine_until_height(daemon, &addr, desired_height);
+    wallet_refresh(wallet);
+  }
+  return result;
+}
+
+void daemon_toggle_checkpoint_quorum(daemon_t *daemon)
+{
+  loki_buffer<256> cmd("integration_test toggle_checkpoint_quorum");
+  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_checkpoint_quorum toggled"));
+}
+
+void daemon_toggle_obligation_quorum(daemon_t *daemon)
+{
+  loki_buffer<256> cmd("integration_test toggle_obligation_quorum");
+  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_obligation_quorum toggled"));
+}
+
+void daemon_toggle_obligation_uptime_proof(daemon_t *daemon)
+{
+  loki_buffer<256> cmd("integration_test toggle_obligation_uptime_proof");
+  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_obligation_uptime_proof toggled"));
+}
+
+void daemon_toggle_obligation_checkpointing(daemon_t *daemon)
+{
+  loki_buffer<256> cmd("integration_test toggle_obligation_checkpointing");
+  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_obligation_checkpointing toggled"));
 }
 
 #endif // LOKI_DAEMON_IMPLEMENTATION

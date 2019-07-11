@@ -130,7 +130,7 @@ bool wallet_address(wallet_t *wallet, int index, loki_addr *addr)
 
   if (addr)
   {
-    char const *start = str_skip_to_next_word(&ptr);
+    char const *start = str_skip_to_next_word_inplace(&ptr);
     char const *end   = str_skip_to_next_whitespace(start);
     int len           = static_cast<int>(end - start);
     LOKI_ASSERT(len > 0);
@@ -146,8 +146,8 @@ bool wallet_address_new(wallet_t *wallet, loki_addr *addr)
   // 1  TRr6hE8JxT1K8TCpQYbaN3Wm3A6MQpG9xQ3ryP7j7sUEgxLhk6b5soijjrhvuK2ZkZRnpeUdnVddzR1u5DYGBY1K2tZRn43zd  (Untitled address)
   itest_read_result output = itest_write_then_read_stdout(&wallet->shared_mem, "address new");
   char const *ptr          = output.buf.c_str;
-  char const *addr_str     = str_skip_to_next_word(&ptr);
-  char const *addr_name    = str_skip_to_next_word(&ptr);
+  char const *addr_str     = str_skip_to_next_word_inplace(&ptr);
+  char const *addr_name    = str_skip_to_next_word_inplace(&ptr);
   assert(str_match(addr_name, "(Untitled address)"));
   addr->set_normal_addr(addr_str);
   return true;
@@ -159,12 +159,12 @@ uint64_t wallet_balance(wallet_t *wallet, uint64_t *unlocked_balance)
   // Balance: 0.000000000, unlocked balance: 0.000000000
   itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "balance", LOKI_STR_LIT("Balance: "));
   char const *ptr         = str_skip_whitespace(output.buf.c_str);
-  char const *balance_str = str_skip_to_next_word(&ptr);
+  char const *balance_str = str_skip_to_next_word_inplace(&ptr);
   uint64_t result         = str_parse_loki_amount(balance_str);
 
   if (unlocked_balance)
   {
-    char const *unlocked_balance_label = str_skip_to_next_word(&ptr);
+    char const *unlocked_balance_label = str_skip_to_next_word_inplace(&ptr);
     LOKI_ASSERT(str_match(unlocked_balance_label, "unlocked balance: "));
 
     os_sleep_ms(500);
@@ -351,19 +351,20 @@ uint64_t wallet_status(wallet_t *wallet)
 bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 {
   // TODO(doyle): Failure states
-  // Example: Sweeping 30298.277954908 in 5 transactions for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
+  // Example:
+  // Transaction 1/1: ...
+  // Sweeping 30298.277954908 for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
   loki_buffer<128> cmd("sweep_all %s", dest);
   itest_write_to_stdin(&wallet->shared_mem, cmd.c_str);
-  itest_read_result output = itest_read_stdout_until(&wallet->shared_mem, "Sweeping");
+  itest_read_result output = itest_read_stdout_until(&wallet->shared_mem, "Transaction 1/");
 
   // Sending amount
-  char const *amount_label = str_find(output.buf.c_str, "Sweeping ");
+  char const *tx_divisor   = str_find(output.buf.c_str, "/");
+  char const *num_txs_str  = str_skip_to_next_digit(tx_divisor);
+  char const *amount_label = str_find(num_txs_str, "Sweeping ");
   char const *amount_str   = str_skip_to_next_digit(amount_label);
   uint64_t atomic_amount   = str_parse_loki_amount(amount_str);
-
-  char const *num_transactions_str = str_skip_to_next_whitespace(amount_str);
-  num_transactions_str             = str_skip_to_next_digit(num_transactions_str);
-  int num_transactions             = (int)atoi(num_transactions_str);
+  int num_transactions     = (int)atoi(num_txs_str);
 
   itest_read_possible_value const possible_values[] =
   {

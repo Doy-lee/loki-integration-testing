@@ -251,7 +251,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
     arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
     arg_buf.append("--storage-server-port 4444 ");
-    arg_buf.append("--sn-public-ip 123.123.123.123 ");
+    arg_buf.append("--service-node-public-ip 123.123.123.123 ");
 
     if (num_daemons == 1)
       arg_buf.append("--offline ");
@@ -297,7 +297,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
 
     arg_buf.append("%s ",                            param.custom_cmd_line.c_str);
     itest_reset_shared_memory(&curr_daemon->shared_mem);
-    if (curr_daemon->id == 0)
+    if (curr_daemon->id == 1)
     {
       // continue;
     }
@@ -540,7 +540,7 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
     if (type == daemon_type::service_node) 
     {
       cmd_line.append("--service-node ");
-      cmd_line.append("--sn-public-ip 123.123.123.123 ");
+      cmd_line.append("--service-node-public-ip 123.123.123.123 ");
       cmd_line.append("--storage-server-port 8080 ");
     }
 
@@ -775,20 +775,21 @@ int main(int argc, char **argv)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
-#if 1
-  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+#if 0
+  global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
   global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
+  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
-  global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
-  global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
+  global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
+  global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
   global_work_queue.jobs.push_back(latest__print_locked_stakes__check_no_locked_stakes);
   global_work_queue.jobs.push_back(latest__print_locked_stakes__check_shows_locked_stakes);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
   global_work_queue.jobs.push_back(latest__register_service_node__allow_4_stakers);
   global_work_queue.jobs.push_back(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
   global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_contribution);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
   global_work_queue.jobs.push_back(latest__register_service_node__check_unlock_time_is_0);
   global_work_queue.jobs.push_back(latest__register_service_node__disallow_register_twice);
   global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
@@ -811,8 +812,12 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
   // global_work_queue.jobs.push_back(foo);
+  global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+
+  // global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
   // global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
-  global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+  // global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  // global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
 #endif
 
   std::vector<std::thread> threads;

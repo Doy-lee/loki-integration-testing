@@ -42,14 +42,14 @@ template <typename T, ptrdiff_t N> constexpr ptrdiff_t char_count_i(T (&)[N]) { 
 #define LOKI_CHAR_COUNT(array) (LOKI_ARRAY_COUNT(array) - 1)
 #define LOKI_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define LOKI_MAX(a, b) (((a) > (b)) ? (a) : (b))
-#define LOKI_ABS(a) (((a) < 0) ? (-a) : (a))
+#define LOKI_ABS(a) (((a) < 0) ? -(a) : (a))
 #define LOKI_MS_TO_NANOSECONDS(val) ((val) * 1000000ULL)
 #define LOKI_MS_TO_SECONDS(val) ((val) / 1000)
 #define LOKI_SECONDS_TO_MS(val) ((val) * 1000)
 #define LOKI_MINUTES_TO_S(val) ((val) * 60)
 #define LOKI_HOURS_TO_S(val) ((val) * LOKI_MINUTES_TO_S(60))
 #define LOKI_DAYS_TO_S(val) ((val) * LOKI_HOURS_TO_S(24))
-#define LOKI_FOR_EACH(iterator, limit) for (isize iterator = 0; iterator < (isize)limit; ++iterator)
+#define LOKI_FOR_EACH(iterator, limit) for (isize iterator = 0; iterator < (isize)(limit); ++iterator)
 
 template <typename procedure>
 struct loki_defer_

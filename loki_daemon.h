@@ -59,7 +59,8 @@ bool                           daemon_relay_tx             (daemon_t *daemon, ch
 bool                           daemon_ban                  (daemon_t *daemon, loki_buffer<32> const *ip);
 bool                           daemon_unban                (daemon_t *daemon, loki_buffer<32> const *ip);
 bool                           daemon_set_log              (daemon_t *daemon, int level);
-daemon_status_t                daemon_status                (daemon_t *daemon);
+daemon_status_t                daemon_status               (daemon_t *daemon);
+bool                           daemon_print_block          (daemon_t *daemon, uint64_t height, loki_hash64 *block_hash);
 
 // NOTE: This command is only available in integration mode, compiled out otherwise in the daemon
 void                daemon_relay_votes_and_uptime(daemon_t *daemon);
@@ -511,6 +512,26 @@ daemon_status_t daemon_status(daemon_t *daemon)
   assert(ptr && char_is_num(ptr[0]));
   result.hf_version = atoi(ptr);
   return result;
+}
+
+bool daemon_print_block(daemon_t *daemon, uint64_t height, loki_hash64 *block_hash)
+{
+  loki_buffer<64> cmd("print_block %zu", height);
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Error: Unsuccessful --"), true},
+    {LOKI_STR_LIT("timestamp: "), false},
+  };
+
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+    return false;
+
+  char const *ptr        = read_result.buf.c_str;
+  char const *hash_label = str_find(ptr, "hash: ");
+  char const *hash       = str_skip_to_next_word(hash_label);
+  *block_hash            = hash;
+  return true;
 }
 
 bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)

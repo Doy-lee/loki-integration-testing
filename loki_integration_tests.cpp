@@ -13,6 +13,7 @@
 #include "loki_daemon.h"
 #include "loki_str.h"
 
+#include <csignal>
 #include <vector>
 #include <atomic>
 
@@ -252,6 +253,9 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
     arg_buf.append("--storage-server-port 4444 ");
     arg_buf.append("--service-node-public-ip 123.123.123.123 ");
+    arg_buf.append("--in-peers 999 ");
+    arg_buf.append("--out-peers 999 ");
+    arg_buf.append("--allow-local-ip ");
 
     if (num_daemons == 1)
       arg_buf.append("--offline ");
@@ -776,9 +780,10 @@ int main(int argc, char **argv)
 
   auto start_time = std::chrono::high_resolution_clock::now();
 #if 0
-  global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
-  global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
-  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  // global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
+  // global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
+  // global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
@@ -803,6 +808,7 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(latest__stake__disallow_staking_when_all_amounts_reserved);
   global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
   global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_bulletproofs);
+  global_work_queue.jobs.push_back(v11__transfer__check_fee_amount);
   global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
   global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
   global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
@@ -812,12 +818,8 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
   // global_work_queue.jobs.push_back(foo);
-  global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
-
-  // global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
-  // global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
-  // global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
-  // global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+  global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_80x_increase);
+  global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
 #endif
 
   std::vector<std::thread> threads;

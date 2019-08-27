@@ -94,9 +94,12 @@ test_result latest__stake__check_transfer_doesnt_used_locked_key_images();
 test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node();
 test_result latest__stake__disallow_staking_when_all_amounts_reserved();
 test_result latest__stake__disallow_to_non_registered_node();
+test_result latest__transfer__check_fee_amount_80x_increase();
 
-
-test_result latest__transfer__check_fee_amount_bulletproofs();
+//
+// V11
+//
+test_result v11__transfer__check_fee_amount_bulletproofs();
 
 //
 // V10

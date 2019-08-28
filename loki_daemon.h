@@ -496,9 +496,17 @@ daemon_status_t daemon_status(daemon_t *daemon)
 {
   // Example:
   // Height: 67/67 (100.0%) on testnet, not mining, net hash 4 H/s, v9, up to date, 0(out)+0(in) connections, uptime 0d 0h 0m 0s
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Error: Problem fetching info -- "), true},
+    {LOKI_STR_LIT("Height: "), false},
+  };
 
-  daemon_status_t result  = {};
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "status", LOKI_STR_LIT("Height: "));
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "status", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (possible_values[output.matching_find_strs_index].is_fail_msg)
+    return {};
+
+  daemon_status_t result = {};
   char const *ptr        = output.buf.c_str;
   char const *height_str = str_skip_to_next_digit_inplace(&ptr);
   result.height          = atoi(height_str);
@@ -548,8 +556,29 @@ bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
 
 void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_blocks)
 {
-  loki_buffer<256> cmd("integration_test debug_mine_n_blocks %s %d", addr->buf.c_str, num_blocks);
-  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Mining stopped in daemon"));
+  itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STR_LIT("Mining stopped in daemon"), false},
+    {LOKI_STR_LIT("integration_test invalid command"), true},
+  };
+
+  // TODO(doyle): This is a hacky workaround, seems to be some race condition in
+  // that sometimes the mining log strings from the daemon gets read from shared
+  // memory and put into the command, like so and produces invalid command result
+
+  // integration_test debug_mine_n_blocks Height 209, txid <497d5d8fd990625a70f39c3dd25d0f4e3365e182c29c673476bc1dc85afcd78a>, 57.499509760 1
+  // integration_test invalid command
+
+  for (;;)
+  {
+      loki_buffer<256> cmd("integration_test debug_mine_n_blocks %s %d", addr->buf.c_str, num_blocks);
+      itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+      if (!possible_values[output.matching_find_strs_index].is_fail_msg)
+      {
+          break;
+      }
+  }
+
 }
 
 void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t desired_height)

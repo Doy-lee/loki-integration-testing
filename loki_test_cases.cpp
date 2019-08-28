@@ -49,7 +49,7 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
   "LEGbch6JYiUjX3ebUvVZZNiU2wNT3SBD4DZgGH9xN56VGq4obkGsKEF8zGLBXiNnFv5dzQX1Yg1Yx99YSgg4GDaZKw6zxcA",
 };
 
-static bool compare_checkpoints(daemon_t *daemons, int num_daemons)
+static bool helper_compare_checkpoints(daemon_t *daemons, int num_daemons)
 {
   bool result = true;
   if (num_daemons <= 1)
@@ -328,6 +328,19 @@ bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
   return true;
 }
 
+enum struct BanType { Unban, Ban };
+void helper_ban_daemons(BanType type, daemon_t *src, daemon_t *daemons_to_ban, int num_daemons_to_ban)
+{
+  LOKI_FOR_EACH(daemon_index, num_daemons_to_ban)
+  {
+    daemon_t const *daemon_to_ban = daemons_to_ban + daemon_index;
+    loki_buffer<32> ban_ip("127.0.0.1:%d", daemon_to_ban->p2p_port);
+
+    if (type == BanType::Unban) daemon_unban(src, &ban_ip);
+    else                        daemon_ban(src, &ban_ip);
+  }
+}
+
 //
 // Latest Tests
 //
@@ -384,7 +397,7 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  int const NUM_SERVICE_NODES = 10;
+  int const NUM_SERVICE_NODES = LOKI_CHECKPOINT_QUORUM_SIZE;
   int const NUM_DAEMONS       = 1;
 
   start_daemon_params daemon_params = {};
@@ -403,16 +416,13 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
 
   // Naughty daemon disconnects from the main chain by banning everyone
-  daemon_t *naughty_daemon                  = environment.daemons + 0;
-  daemon_t *service_nodes                   = environment.service_nodes;
-  {
-    loki_buffer<32> ip("127.0.0.1");
-    daemon_ban(naughty_daemon, &ip);
-  }
+  wallet_t *wallet         = environment.wallets.data();
+  daemon_t *naughty_daemon = environment.daemons + 0;
+  daemon_t *service_nodes  = environment.service_nodes;
+  helper_ban_daemons(BanType::Ban, naughty_daemon, service_nodes, NUM_SERVICE_NODES);
 
-  wallet_t *wallet = environment.wallets.data();
   // Mine registration and become service nodes and mine some blocks to create checkpoint votes
-  for (int index = 0; index < ((LOKI_VOTE_LIFETIME / LOKI_CHECKPOINT_INTERVAL) * 1); index++)
+  for (int index = 0; index < ((LOKI_VOTE_LIFETIME / LOKI_CHECKPOINT_INTERVAL) * 2); index++)
   {
     daemon_mine_n_blocks(service_nodes + 0, wallet, LOKI_CHECKPOINT_INTERVAL);
     helper_block_until_blockchains_are_synced(service_nodes, NUM_DAEMONS - 1);
@@ -421,6 +431,7 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
       daemon_t *daemon = service_nodes + daemon_index;
       daemon_relay_votes_and_uptime(daemon);
     }
+    daemon_status(naughty_daemon);
     os_sleep_ms(1000);
   }
 
@@ -437,50 +448,29 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
     daemon_status(naughty_daemon);
   }
 
-  // Mine blocks on the mainchain so that the naughty daemon blocks are invalid
-  LOKI_FOR_EACH(i, (LOKI_VOTE_LIFETIME * 1) / LOKI_CHECKPOINT_INTERVAL)
-  {
-    daemon_mine_n_blocks(service_nodes + 0, wallet, LOKI_CHECKPOINT_INTERVAL);
-    LOKI_FOR_EACH(daemon_index, NUM_SERVICE_NODES)
-    {
-      daemon_t *daemon = service_nodes + daemon_index;
-      daemon_relay_votes_and_uptime(daemon);
-    }
-    helper_block_until_blockchains_are_synced(service_nodes, NUM_SERVICE_NODES);
-  }
-
-  daemon_status_t daemon_0_status = daemon_status(service_nodes + 0);
-  LOKI_ASSERT_MSG(target_naughty_daemon_height > daemon_0_status.height,
-                  "Naughty daemon should have more blocks so that it has a greater PoW, but the other chain is "
-                  "checkpointed so we should always switch back to");
-
 #if 0
   EXPECT(result,
-         compare_checkpoints(environment.service_nodes, NUM_SERVICE_NODES),
+         helper_compare_checkpoints(environment.service_nodes, NUM_SERVICE_NODES),
          "Checkpoints did not match between daemons to be checked");
 #else
   // TODO(loki): Until we can enforce checkpoints are reliably transmitted, i.e.
   // I can't sync blocks without the pre-requisite checkpoints we are likely
   // going to end up with missing checkpoints since the rate at which blocks are
   // produced in tests is faster than the P2P system can keep up with.
-  compare_checkpoints(environment.service_nodes, NUM_SERVICE_NODES);
+  helper_compare_checkpoints(environment.service_nodes, NUM_SERVICE_NODES);
 #endif
 
   // Naughty daemon reconnects to the chain. All the other nodes should NOT
   // reorg to this chain, but the naughty daemon should no longer be accepted.
-  {
-    loki_buffer<32> ip("127.0.0.1");
-    daemon_unban(naughty_daemon, &ip);
-  }
+  helper_ban_daemons(BanType::Unban, naughty_daemon, service_nodes, NUM_SERVICE_NODES);
 
   // TODO(doyle): This could be more robust by checking the top block hash
+  daemon_status_t daemon_0_status       = daemon_status(service_nodes + 0);
   daemon_status_t naughty_daemon_status = daemon_status(naughty_daemon);
   uint64_t target_blockchain_height     = daemon_0_status.height;
   uint64_t naughty_height               = naughty_daemon_status.height;
 
-  // NOTE: Retry a couple of times to see if the daemon will reorg
-  os_sleep_ms(5000);
-  for (int i = 0; i < 99 && naughty_height != target_blockchain_height; i++)
+  for (int i = 0; naughty_height != target_blockchain_height; i++)
   {
     os_sleep_ms(1500);
     naughty_daemon_status = daemon_status(naughty_daemon);
@@ -490,19 +480,19 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   helper_block_until_blockchains_are_synced(environment.all_daemons.data(), NUM_DAEMONS);
 #if 0
   EXPECT(result,
-         compare_checkpoints(environment.all_daemons.data(), NUM_SERVICE_NODES + NUM_DAEMONS),
+         helper_compare_checkpoints(environment.all_daemons.data(), NUM_SERVICE_NODES + NUM_DAEMONS),
          "Checkpoints did not match between daemons to be checked after private chain reorged to canonical chain");
 #else
   // TODO(loki): Until we can enforce checkpoints are reliably transmitted, i.e.
   // I can't sync blocks without the pre-requisite checkpoints we are likely
   // going to end up with missing checkpoints since the rate at which blocks are
   // produced in tests is faster than the P2P system can keep up with.
-  compare_checkpoints(environment.all_daemons.data(), NUM_SERVICE_NODES + NUM_DAEMONS);
+  helper_compare_checkpoints(environment.all_daemons.data(), NUM_SERVICE_NODES + NUM_DAEMONS);
 #endif
 
   EXPECT(result, target_blockchain_height == naughty_height, "%zu == %zu, The naughty daemon who private mined a chain did not reorg to the checkpointed chain!", target_blockchain_height, naughty_height);
 
-  loki_hash64 good_hash, naughty_hash = {};
+  loki_hash64 good_hash, naughty_hash;
   EXPECT(result, daemon_print_block(environment.service_nodes + 0, target_blockchain_height - 1, &good_hash), "Failed to print block for height: %zu", target_blockchain_height);
   EXPECT(result, daemon_print_block(naughty_daemon, target_blockchain_height - 1, &naughty_hash), "Failed to print block for height: %zu", target_blockchain_height);
 
@@ -524,25 +514,20 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
 
-  // daemon_params.keep_terminal_open = true;
   create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.c_str);
   for (size_t i = 0; i < NUM_SERVICE_NODES; ++i)
     LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
 
-  LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-  {
-    daemon_t *daemon = daemons + daemon_index;
+  LOKI_FOR_ITERATOR(daemon, daemons, NUM_DAEMONS)
     daemon_toggle_obligation_quorum(daemon);
-  }
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = daemons + 0;
   wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
   wallet_set_default_testing_settings(&wallet);
 
-  loki_buffer<32> ban_ip("127.0.0.1");
-  daemon_t *new_peer = daemons + NUM_DAEMONS - 1;
-  daemon_ban(new_peer, &ban_ip);
+  daemon_t *new_peer = daemons + NUM_SERVICE_NODES;
+  helper_ban_daemons(BanType::Ban, new_peer, daemons, NUM_SERVICE_NODES);
 
   LOKI_DEFER
   {
@@ -558,13 +543,11 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
     register_params.contributors[register_params.num_contributors].amount = LOKI_FAKENET_STAKING_REQUIREMENT;
     wallet_address(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
 
-    LOKI_FOR_EACH(i, NUM_SERVICE_NODES) // Register each daemon on the network
+    LOKI_FOR_ITERATOR(daemon, daemons, NUM_SERVICE_NODES) // Register each daemon on the network
     {
       loki_scratch_buf registration_cmd = {};
-      daemon_t *daemon                  = daemons + i;
+      loki_transaction register_tx      = {};
       EXPECT(result, daemon_prepare_registration (daemon, &register_params, &registration_cmd), "Failed to prepare registration");
-
-      loki_transaction register_tx = {};
       EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str, &register_tx),"Failed to register service node");
     }
   }
@@ -573,24 +556,21 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
   for (int index = 0; index < (LOKI_VOTE_LIFETIME / LOKI_CHECKPOINT_INTERVAL); index++)
   {
     daemon_mine_n_blocks(daemons + 0, &wallet, LOKI_CHECKPOINT_INTERVAL);
-    helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS - 1);
-    LOKI_FOR_EACH(daemon_index, NUM_SERVICE_NODES)
-    {
-      daemon_t *daemon = daemons + daemon_index;
+    helper_block_until_blockchains_are_synced(daemons, NUM_SERVICE_NODES);
+    LOKI_FOR_ITERATOR(daemon, daemons, NUM_SERVICE_NODES)
       daemon_relay_votes_and_uptime(daemon);
-    }
     os_sleep_ms(1000);
   }
 
   // Unban localhost, restoring connection to the new peer and see if it syncs up
+  helper_ban_daemons(BanType::Unban, new_peer, daemons, NUM_SERVICE_NODES);
   daemon_status_t daemon_0_status   = daemon_status(daemons + 0);
-  daemon_unban(new_peer, &ban_ip);
   daemon_status_t new_peer_status   = daemon_status(new_peer);
   uint64_t target_blockchain_height = daemon_0_status.height;
   uint64_t new_peer_height          = new_peer_status.height;
 
   // NOTE: Retry a couple of times and wait for the new peer to sync
-  for (int i = 0; i < 24 && new_peer_height != target_blockchain_height; i++)
+  for (int i = 0; i < 100 && new_peer_height != target_blockchain_height; i++)
   {
     os_sleep_ms(2000);
     new_peer_status = daemon_status(new_peer);
@@ -598,13 +578,13 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
   }
   EXPECT(result, target_blockchain_height == new_peer_height, "%zu == %zu, The new peer did not sync to the target chain height!", target_blockchain_height, new_peer_height);
 #if 0
-  EXPECT(result, compare_checkpoints(daemons, NUM_DAEMONS), "Checkpoints did not match between all daemons");
+  EXPECT(result, helper_compare_checkpoints(daemons, NUM_DAEMONS), "Checkpoints did not match between all daemons");
 #else
   // TODO(loki): Until we can enforce checkpoints are reliably transmitted, i.e.
   // I can't sync blocks without the pre-requisite checkpoints we are likely
   // going to end up with missing checkpoints since the rate at which blocks are
   // produced in tests is faster than the P2P system can keep up with.
-  compare_checkpoints(daemons, NUM_DAEMONS);
+  helper_compare_checkpoints(daemons, NUM_DAEMONS);
 #endif
 
   loki_hash64 good_hash, new_hash = {};
@@ -620,34 +600,36 @@ test_result latest__checkpointing__deregister_non_participating_peer()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  int const NUM_SERVICE_NODES = LOKI_MAX(LOKI_CHECKPOINT_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE) * 2;
-  int const NUM_DAEMONS       = 0;
-  int const NUM_WALLETS       = 1;
-  int const WALLET_BALANCE    = 100;
-
-  start_daemon_params daemon_params = {};
-  daemon_params.keep_terminal_open = true;
-  daemon_params.load_latest_hardfork_versions();
+  int const NUM_SERVICE_NODES               = LOKI_MAX(LOKI_CHECKPOINT_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE) + 1;
   helper_blockchain_environment environment = {};
-  EXPECT(result,
-         helper_setup_blockchain(&environment, &result, daemon_params, NUM_SERVICE_NODES, NUM_DAEMONS, NUM_WALLETS, WALLET_BALANCE),
-         "Failed to setup basic blockchain with service nodes");
+  {
+    start_daemon_params daemon_params = {};
+    daemon_params.keep_terminal_open  = true;
+
+    int const NUM_DAEMONS             = 0;
+    int const NUM_WALLETS             = 1;
+    int const WALLET_BALANCE          = 100;
+
+    daemon_params.load_latest_hardfork_versions();
+    EXPECT(result,
+           helper_setup_blockchain(&environment, &result, daemon_params, NUM_SERVICE_NODES, NUM_DAEMONS, NUM_WALLETS, WALLET_BALANCE),
+           "Failed to setup basic blockchain with service nodes");
+  }
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
-  wallet_t *wallet      = environment.wallets.data();
 
   // NOTE: Test Start
-  int const NUM_GOOD_SERVICE_NODES = NUM_SERVICE_NODES - 5;
-  daemon_t *service_nodes          = environment.service_nodes;
+  int const NUM_GOOD_SERVICE_NODES     = NUM_SERVICE_NODES - 1;
+  int const NUM_BAD_SERVICE_NODES      = NUM_SERVICE_NODES - NUM_GOOD_SERVICE_NODES;
+  wallet_t *wallet                     = environment.wallets.data();
+  daemon_t *good_service_nodes         = environment.service_nodes;
+  daemon_t *bad_service_nodes          = environment.service_nodes + NUM_GOOD_SERVICE_NODES;
+  loki_snode_key *bad_service_node_key = environment.snode_keys.data() + NUM_GOOD_SERVICE_NODES;
 
-  int const NUM_NAUGHTY_SERVICE_NODES = NUM_SERVICE_NODES - NUM_GOOD_SERVICE_NODES;
-  daemon_t *naughty_daemons           = environment.service_nodes + NUM_GOOD_SERVICE_NODES;
-
-  // NOTE: Naughty daemon does not participate in the checkpointing quorums
-  LOKI_FOR_EACH(i, NUM_NAUGHTY_SERVICE_NODES)
+  // NOTE: Bad daemon does not participate in the checkpointing quorums
+  LOKI_FOR_ITERATOR(node, bad_service_nodes, NUM_BAD_SERVICE_NODES)
   {
-    daemon_toggle_checkpoint_quorum(naughty_daemons + i);
-    loki_buffer<32> ip("127.0.0.1");
-    daemon_ban(naughty_daemons + i, &ip);
+    daemon_toggle_checkpoint_quorum(node);
+    helper_ban_daemons(BanType::Ban, node, good_service_nodes, NUM_GOOD_SERVICE_NODES);
   }
 
   for (daemon_t &daemon : environment.all_daemons)
@@ -656,30 +638,24 @@ test_result latest__checkpointing__deregister_non_participating_peer()
     daemon_relay_votes_and_uptime(&daemon);
   }
 
-  int blocks_to_mine = 120;
-  LOKI_FOR_EACH(i, blocks_to_mine / LOKI_CHECKPOINT_INTERVAL)
+  int blocks_to_try = 240;
+  daemon_t *miner = good_service_nodes + 0;
+  LOKI_FOR_EACH(i, (blocks_to_try / LOKI_CHECKPOINT_INTERVAL))
   {
-    daemon_mine_n_blocks(service_nodes, wallet, LOKI_CHECKPOINT_INTERVAL);
-    helper_block_until_blockchains_are_synced(service_nodes, NUM_GOOD_SERVICE_NODES);
+    daemon_mine_n_blocks(miner, wallet, LOKI_CHECKPOINT_INTERVAL);
+    helper_block_until_blockchains_are_synced(good_service_nodes, NUM_GOOD_SERVICE_NODES);
 
-    LOKI_FOR_EACH(j, NUM_GOOD_SERVICE_NODES)
-      daemon_relay_votes_and_uptime(service_nodes + j);
+    LOKI_FOR_ITERATOR(node, good_service_nodes, NUM_GOOD_SERVICE_NODES)
+      daemon_relay_votes_and_uptime(node);
     os_sleep_ms(250);
-  }
 
-  EXPECT(result, compare_checkpoints(service_nodes, NUM_GOOD_SERVICE_NODES), "Checkpoints do not match between the good service nodes");
-
-  int registered_count   = 0;
-  int deregistered_count = 0;
-  for (loki_snode_key &snode_key : environment.snode_keys)
-  {
-    daemon_snode_status status = daemon_print_sn(service_nodes + 0, &snode_key);
-    if (status.registered) registered_count++;
-    else deregistered_count++;
+    daemon_snode_status status = daemon_print_sn(good_service_nodes + 0, bad_service_node_key);
+    if (!status.registered)
+        return result;
   }
 
   EXPECT(result,
-         deregistered_count > 0,
+         false,
          "The naughty daemons disabled their checkpoint quorum, so they should not be participating in quorums and "
          "hence should be deregistered");
   return result;
@@ -690,49 +666,46 @@ test_result latest__decommission__recommission_on_uptime_proof()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  int const NUM_SERVICE_NODES = 10;
-  int const NUM_DAEMONS       = 1;
-
-  start_daemon_params daemon_params = {};
-  daemon_params.load_latest_hardfork_versions();
-  daemon_params.keep_terminal_open = true;
   helper_blockchain_environment environment = {};
-  EXPECT(result,
-         helper_setup_blockchain(&environment,
-                                 &result,
-                                 daemon_params,
-                                 NUM_SERVICE_NODES,
-                                 NUM_DAEMONS,
-                                 1 /*num wallets*/,
-                                 100 /*wallet_balance*/),
-         "Failed to setup basic blockchain with service nodes");
+  {
+    int const NUM_SERVICE_NODES       = (LOKI_STATE_CHANGE_QUORUM_SIZE + 1);
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    // daemon_params.keep_terminal_open = false;
+    EXPECT(result,
+           helper_setup_blockchain(&environment,
+                                   &result,
+                                   daemon_params,
+                                   NUM_SERVICE_NODES,
+                                   0 /*num daemons*/,
+                                   1 /*num wallets*/,
+                                   100 /*wallet_balance*/),
+           "Failed to setup basic blockchain with service nodes");
+  }
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
 
   // Naughty daemon disconnects from the main chain
-  daemon_t *bad_service_node       = environment.service_nodes + 0;
-  loki_snode_key *bad_snode_key    = environment.snode_keys.data();
-  daemon_t *good_service_nodes     = environment.service_nodes + 1;
-  int const NUM_GOOD_SERVICE_NODES = NUM_SERVICE_NODES - 1;
+  int num_good_service_nodes    = environment.num_service_nodes - 1;
+  loki_snode_key *bad_snode_key = environment.snode_keys.data();
+  daemon_t *bad_service_node    = environment.service_nodes + 0;
+  daemon_t *good_service_nodes  = bad_service_node + 1;
+  wallet_t *wallet              = environment.wallets.data();
 
-  loki_buffer<32> const ip("127.0.0.1");
-  daemon_ban(bad_service_node, &ip);
-
-  wallet_t *wallet = environment.wallets.data();
-  daemon_mine_n_blocks(good_service_nodes + 0, wallet, LOKI_DECOMMISSION_INITIAL_CREDIT);
-  helper_block_until_blockchains_are_synced(good_service_nodes, NUM_GOOD_SERVICE_NODES);
+  daemon_t *miner = good_service_nodes + 0;
+  helper_ban_daemons(BanType::Ban, bad_service_node, good_service_nodes, num_good_service_nodes);
+  daemon_mine_n_blocks(miner, wallet, LOKI_DECOMMISSION_INITIAL_CREDIT + 10);
+  helper_block_until_blockchains_are_synced(good_service_nodes, num_good_service_nodes);
 
   daemon_snode_status status = {};
-  for (status = daemon_print_sn(good_service_nodes + 0, bad_snode_key);
+  for (status = daemon_print_sn(miner, bad_snode_key);
       !status.decommissioned;
-       status = daemon_print_sn(good_service_nodes + 0, bad_snode_key))
+       status = daemon_print_sn(miner, bad_snode_key))
   {
-    daemon_mine_n_blocks(good_service_nodes + 0, wallet, 1);
-    LOKI_FOR_EACH(daemon_index, NUM_GOOD_SERVICE_NODES)
-    {
-      daemon_t *daemon = good_service_nodes + daemon_index;
+    daemon_mine_n_blocks(miner, wallet, 1);
+    LOKI_FOR_ITERATOR(daemon, good_service_nodes, num_good_service_nodes)
       daemon_relay_votes_and_uptime(daemon);
-    }
-    helper_block_until_blockchains_are_synced(good_service_nodes, NUM_GOOD_SERVICE_NODES);
+    helper_block_until_blockchains_are_synced(good_service_nodes, num_good_service_nodes);
+    os_sleep_ms(1000);
   }
 
   EXPECT(result,
@@ -740,11 +713,11 @@ test_result latest__decommission__recommission_on_uptime_proof()
          "The node should not have any uptime proof relayed yet, we want to be in decommission, enter a quorum and be "
          "recommissioned");
 
-  daemon_unban(bad_service_node, &ip);
+  helper_ban_daemons(BanType::Unban, bad_service_node, good_service_nodes, num_good_service_nodes);
   helper_block_until_blockchains_are_synced(environment.service_nodes, environment.num_service_nodes);
 
   // NOTE: Relay uptime proof and try a couple of times to see if our uptime proof got received by the service node
-  for (int tries = 0; tries < 16; ++tries)
+  for (int tries = 0; tries < 100; ++tries)
   {
     for (daemon_t &daemon : environment.all_daemons)
       daemon_relay_votes_and_uptime(&daemon);
@@ -792,7 +765,6 @@ test_result latest__deregistration__n_unresponsive_node()
   daemon_t       *deregister_daemons     = daemons    + num_register_daemons;
   loki_snode_key *deregister_snode_keys  = snode_keys + num_register_daemons;
 
-  // daemon_params.keep_terminal_open = true;
   create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.c_str);
   for (size_t i = 0; i < NUM_DAEMONS; ++i)
   {

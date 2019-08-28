@@ -50,6 +50,8 @@ template <typename T, ptrdiff_t N> constexpr ptrdiff_t char_count_i(T (&)[N]) { 
 #define LOKI_HOURS_TO_S(val) ((val) * LOKI_MINUTES_TO_S(60))
 #define LOKI_DAYS_TO_S(val) ((val) * LOKI_HOURS_TO_S(24))
 #define LOKI_FOR_EACH(iterator, limit) for (isize iterator = 0; iterator < (isize)(limit); ++iterator)
+#define LOKI_FOR_ITERATOR(it, array ,count) for (auto it = array, end_it = array + count; it != end_it; it++)
+
 
 template <typename procedure>
 struct loki_defer_

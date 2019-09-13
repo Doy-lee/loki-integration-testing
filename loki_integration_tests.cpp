@@ -98,6 +98,7 @@ void start_daemon_params::load_latest_hardfork_versions()
   this->add_hardfork(10, 3);
   this->add_hardfork(11, 4);
   this->add_hardfork(12, 5);
+  this->add_hardfork(13, 6);
 }
 
 void itest_write_to_stdin(in_out_shared_mem *shared_mem, char const *cmd)
@@ -806,16 +807,17 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
   global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_80x_increase);
   global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
-  global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
-  global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
-  global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
-  global_work_queue.jobs.push_back(v10__stake__allow_incremental_staking_until_node_active);
-  global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
-  global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
+
+  // NOTE: Specific hard fork tests are sort of broken due to removing old hard forking code in the wallet.
+  // global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
+  // global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
+  // global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
+  // global_work_queue.jobs.push_back(v10__stake__allow_incremental_staking_until_node_active);
+  // global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
+  // global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
+  // global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  // global_work_queue.jobs.push_back(foo);
-  global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
+  global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
 #endif
 
   std::vector<std::thread> threads;

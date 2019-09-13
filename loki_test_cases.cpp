@@ -600,7 +600,8 @@ test_result latest__checkpointing__deregister_non_participating_peer()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  int const NUM_SERVICE_NODES               = LOKI_MAX(LOKI_CHECKPOINT_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE) + 1;
+  int const NUM_BAD_SERVICE_NODES           = 5;
+  int const NUM_SERVICE_NODES               = LOKI_MAX(LOKI_CHECKPOINT_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE) + NUM_BAD_SERVICE_NODES;
   helper_blockchain_environment environment = {};
   {
     start_daemon_params daemon_params = {};
@@ -618,18 +619,19 @@ test_result latest__checkpointing__deregister_non_participating_peer()
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
 
   // NOTE: Test Start
-  int const NUM_GOOD_SERVICE_NODES     = NUM_SERVICE_NODES - 1;
-  int const NUM_BAD_SERVICE_NODES      = NUM_SERVICE_NODES - NUM_GOOD_SERVICE_NODES;
-  wallet_t *wallet                     = environment.wallets.data();
-  daemon_t *good_service_nodes         = environment.service_nodes;
-  daemon_t *bad_service_nodes          = environment.service_nodes + NUM_GOOD_SERVICE_NODES;
-  loki_snode_key *bad_service_node_key = environment.snode_keys.data() + NUM_GOOD_SERVICE_NODES;
+  int const NUM_GOOD_SERVICE_NODES     = NUM_SERVICE_NODES - NUM_BAD_SERVICE_NODES;
+  LOKI_ASSERT(NUM_BAD_SERVICE_NODES > 0);
+  wallet_t *wallet                      = environment.wallets.data();
+  daemon_t *good_service_nodes          = environment.service_nodes;
+  daemon_t *bad_service_nodes           = environment.service_nodes + NUM_GOOD_SERVICE_NODES;
+  loki_snode_key *bad_service_node_keys = environment.snode_keys.data() + NUM_GOOD_SERVICE_NODES;
 
   // NOTE: Bad daemon does not participate in the checkpointing quorums
   LOKI_FOR_ITERATOR(node, bad_service_nodes, NUM_BAD_SERVICE_NODES)
   {
     daemon_toggle_checkpoint_quorum(node);
-    helper_ban_daemons(BanType::Ban, node, good_service_nodes, NUM_GOOD_SERVICE_NODES);
+    helper_ban_daemons(BanType::Ban, node, environment.service_nodes, NUM_SERVICE_NODES);
+    daemon_status(node);
   }
 
   for (daemon_t &daemon : environment.all_daemons)
@@ -638,7 +640,7 @@ test_result latest__checkpointing__deregister_non_participating_peer()
     daemon_relay_votes_and_uptime(&daemon);
   }
 
-  int blocks_to_try = 240;
+  int blocks_to_try = 1200;
   daemon_t *miner = good_service_nodes + 0;
   LOKI_FOR_EACH(i, (blocks_to_try / LOKI_CHECKPOINT_INTERVAL))
   {
@@ -649,9 +651,12 @@ test_result latest__checkpointing__deregister_non_participating_peer()
       daemon_relay_votes_and_uptime(node);
     os_sleep_ms(250);
 
-    daemon_snode_status status = daemon_print_sn(good_service_nodes + 0, bad_service_node_key);
-    if (!status.registered)
-        return result;
+    LOKI_FOR_ITERATOR(bad_key, bad_service_node_keys, NUM_BAD_SERVICE_NODES)
+    {
+      daemon_snode_status status = daemon_print_sn(good_service_nodes + 0, bad_key);
+      if (!status.registered)
+          return result;
+    }
   }
 
   EXPECT(result,

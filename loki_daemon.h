@@ -302,7 +302,7 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
   char const *decommissioned_str        = str_find(ptr, "Current Status: DECOMMISSIONED");
 
   result.known_on_the_network       = true;
-  result.last_uptime_proof_received = (str_find(ptr, "Last Uptime Proof Received: Not Received Yet") == nullptr);
+  result.last_uptime_proof_received = (str_find(ptr, "Last Uptime Proof Received: (Awaiting confirmation from network)") == nullptr);
   result.registered                 = (num_registered_snodes == 1);
   result.decommissioned             = (decommissioned_str != nullptr);
   return result;

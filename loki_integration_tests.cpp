@@ -535,6 +535,7 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
     cmd_line.append("--p2p-bind-port %d ", daemon->p2p_port);
     cmd_line.append("--rpc-bind-port %d ", daemon->rpc_port);
     cmd_line.append("--zmq-rpc-bind-port %d ", daemon->zmq_rpc_port);
+    cmd_line.append("--log-level 1 ");
 
     if (environment->daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
     else if (environment->daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
@@ -777,7 +778,7 @@ int main(int argc, char **argv)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
-#if 0
+#if 1
   global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
   global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
   global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
@@ -817,7 +818,7 @@ int main(int argc, char **argv)
   // global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
   // global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
+  global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
 #endif
 
   std::vector<std::thread> threads;

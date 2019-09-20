@@ -334,7 +334,7 @@ void helper_ban_daemons(BanType type, daemon_t *src, daemon_t *daemons_to_ban, i
   LOKI_FOR_EACH(daemon_index, num_daemons_to_ban)
   {
     daemon_t const *daemon_to_ban = daemons_to_ban + daemon_index;
-    loki_buffer<32> ban_ip("127.0.0.1:%d", daemon_to_ban->p2p_port);
+    loki_buffer<32> ban_ip("127.0.0.1");
 
     if (type == BanType::Unban) daemon_unban(src, &ban_ip);
     else                        daemon_ban(src, &ban_ip);
@@ -605,7 +605,7 @@ test_result latest__checkpointing__deregister_non_participating_peer()
   helper_blockchain_environment environment = {};
   {
     start_daemon_params daemon_params = {};
-    daemon_params.keep_terminal_open  = true;
+    daemon_params.keep_terminal_open  = false;
 
     int const NUM_DAEMONS             = 0;
     int const NUM_WALLETS             = 1;

@@ -605,7 +605,7 @@ test_result latest__checkpointing__deregister_non_participating_peer()
   helper_blockchain_environment environment = {};
   {
     start_daemon_params daemon_params = {};
-    daemon_params.keep_terminal_open  = false;
+    daemon_params.keep_terminal_open  = true;
 
     int const NUM_DAEMONS             = 0;
     int const NUM_WALLETS             = 1;

@@ -35,11 +35,12 @@ char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"./lok
 
 struct state_t
 {
-  std::atomic<int> num_wallets   = 0;
-  std::atomic<int> num_daemons   = 0;
-  std::atomic<int> free_p2p_port = 1111;
-  std::atomic<int> free_rpc_port = 2222;
-  std::atomic<int> free_zmq_port = 3333;
+  std::atomic<int> num_wallets         = 0;
+  std::atomic<int> num_daemons         = 0;
+  std::atomic<int> free_p2p_port       = 1111;
+  std::atomic<int> free_rpc_port       = 2222;
+  std::atomic<int> free_zmq_port       = 3333;
+  std::atomic<int> free_quorumnet_port = 4444;
 };
 
 static state_t global_state;
@@ -251,9 +252,11 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     arg_buf.append("--p2p-bind-port %d ",            curr_daemon->p2p_port);
     arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
+    arg_buf.append("--quorumnet-port %d ",           curr_daemon->quorumnet_port);
     arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
     arg_buf.append("--storage-server-port 4444 ");
     arg_buf.append("--service-node-public-ip 123.123.123.123 ");
+    arg_buf.append("--dev-allow-local-ips ");
 
     if (num_daemons == 1)
       arg_buf.append("--offline ");
@@ -400,12 +403,13 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
 
 daemon_t create_daemon()
 {
-  daemon_t result     = {};
-  result.id           = global_state.num_daemons++;
-  result.p2p_port     = global_state.free_p2p_port++;
-  result.rpc_port     = global_state.free_rpc_port++;
-  result.zmq_rpc_port = global_state.free_zmq_port++;
-  result.shared_mem   = setup_shared_mem(DAEMON_SHARED_MEM_NAME, result.id);
+  daemon_t result       = {};
+  result.id             = global_state.num_daemons++;
+  result.p2p_port       = global_state.free_p2p_port++;
+  result.rpc_port       = global_state.free_rpc_port++;
+  result.zmq_rpc_port   = global_state.free_zmq_port++;
+  result.quorumnet_port = global_state.free_quorumnet_port++;
+  result.shared_mem     = setup_shared_mem(DAEMON_SHARED_MEM_NAME, result.id);
   return result;
 }
 
@@ -535,7 +539,9 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
     cmd_line.append("--p2p-bind-port %d ", daemon->p2p_port);
     cmd_line.append("--rpc-bind-port %d ", daemon->rpc_port);
     cmd_line.append("--zmq-rpc-bind-port %d ", daemon->zmq_rpc_port);
+    cmd_line.append("--quorumnet--port %d ", daemon->quorumnet_port);
     cmd_line.append("--log-level 1 ");
+    cmd_line.append("--dev-allow-local-ips ");
 
     if (environment->daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
     else if (environment->daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
@@ -818,7 +824,8 @@ int main(int argc, char **argv)
   // global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
   // global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
 #else
-  global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+  // global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
 #endif
 
   std::vector<std::thread> threads;

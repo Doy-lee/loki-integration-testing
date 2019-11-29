@@ -252,6 +252,7 @@ struct daemon_t
   int               p2p_port;
   int               rpc_port;
   int               zmq_rpc_port;
+  int               quorumnet_port;
   in_out_shared_mem shared_mem;
 };
 

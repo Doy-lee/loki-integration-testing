@@ -161,7 +161,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     if (params->open_pool)
     {
       itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "n");
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("What percentage of the total staking reward would the operator like to reserve as an operator fee"), owner_fee.c_str);
+      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter operator fee as a percentage of the total staking reward"), owner_fee.c_str);
       itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"), "n");
       itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter the loki address for the operator"), owner->addr.buf.c_str);
       itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"), owner_amount.c_str);
@@ -212,7 +212,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   else
   {
     itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "n");
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("What percentage of the total staking reward would the operator like to reserve as an operator fee"), owner_fee.c_str);
+    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter operator fee as a percentage of the total staking reward"), owner_fee.c_str);
     itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"), "y");
 
     int num_extra_contribs             = params->num_contributors - 1;

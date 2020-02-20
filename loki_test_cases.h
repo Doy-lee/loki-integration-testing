@@ -8,14 +8,14 @@
 
 struct test_result
 {
-  loki_buffer<512>  name;
-  bool              failed;
-  loki_scratch_buf  fail_msg;
-  float             duration_ms;
+  loki_fixed_string<512> name;
+  bool                   failed;
+  loki_fixed_string<>    fail_msg;
+  float                  duration_ms;
 };
 
 #define INITIALISE_TEST_CONTEXT(test_result_var)                               \
-  test_result_var.name = loki_buffer<512>(__func__);                           \
+  test_result_var.name = loki_fixed_string<512>(__func__);                           \
   auto start_time = std::chrono::high_resolution_clock::now();                 \
   LOKI_DEFER {                                                                 \
     auto end_time = std::chrono::high_resolution_clock::now();                 \

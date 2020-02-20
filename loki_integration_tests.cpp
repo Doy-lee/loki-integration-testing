@@ -1,9 +1,6 @@
 #include "loki_integration_tests.h"
 #include "loki_test_cases.h"
 
-#define SHOOM_IMPLEMENTATION
-#include "external/shoom.h"
-
 #define STB_SPRINTF_IMPLEMENTATION
 #include "external/stb_sprintf.h"
 
@@ -12,19 +9,9 @@
 
 #include "loki_daemon.h"
 #include "loki_str.h"
-
-#include <csignal>
-#include <vector>
 #include <atomic>
 
-enum struct terminal_type_t
-{
-  lxterminal,
-  xterm,
-};
-
 #define XTERM_CMD 1
-
 #if LXTERMINAL_CMD
 char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
 char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
@@ -33,45 +20,42 @@ char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d %s\" -e bash -c \"./lok
 char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
 #endif
 
-struct state_t
-{
-  std::atomic<int> num_wallets         = 0;
-  std::atomic<int> num_daemons         = 0;
-  std::atomic<int> free_p2p_port       = 1111;
-  std::atomic<int> free_rpc_port       = 2222;
-  std::atomic<int> free_zmq_port       = 3333;
-  std::atomic<int> free_quorumnet_port = 4444;
-};
-static state_t global_state;
+// -------------------------------------------------------------------------------------------------
+//
+// itest_ipc
+//
+// -------------------------------------------------------------------------------------------------
+char const DAEMON_IPC_NAME[] = "loki_integration_testing_daemon";
+char const WALLET_IPC_NAME[] = "loki_integration_testing_wallet";
 
 void itest_ipc_clean_up(itest_ipc *ipc)
 {
   close(ipc->read.fd);
   close(ipc->write.fd);
-  unlink(ipc->read.file.c_str);
-  unlink(ipc->write.file.c_str);
+  unlink(ipc->read.file.str);
+  unlink(ipc->write.file.str);
 }
 
-static void itest_ipc_open_pipes(itest_ipc *ipc)
+FILE_SCOPE void itest_ipc_open_pipes(itest_ipc *ipc)
 {
   assert(ipc->read.file.len > 0);
   assert(ipc->write.file.len > 0);
-  unlink(ipc->read.file.c_str);
-  unlink(ipc->write.file.c_str);
+  unlink(ipc->read.file.str);
+  unlink(ipc->write.file.str);
 
-  if (mknod(ipc->read.file.c_str, S_IFIFO | 0666, 0) == -1)
+  if (mknod(ipc->read.file.str, S_IFIFO | 0666, 0) == -1)
   {
     perror("Failed to initialise read pipe");
     assert(false);
   }
 
-  if (mknod(ipc->write.file.c_str, S_IFIFO | 0666, 0) == -1)
+  if (mknod(ipc->write.file.str, S_IFIFO | 0666, 0) == -1)
   {
     perror("Failed to initialise write pipe");
     assert(false);
   }
 
-  ipc->write.fd = open(ipc->write.file.c_str, O_WRONLY);
+  ipc->write.fd = open(ipc->write.file.str, O_WRONLY);
   if (ipc->write.fd == -1)
   {
     perror("Failed to open write pipe");
@@ -79,16 +63,20 @@ static void itest_ipc_open_pipes(itest_ipc *ipc)
   }
 }
 
-char const WALLET_IPC_NAME[] = "loki_integration_testing_wallet";
-static itest_ipc itest_ipc_setup(char const *base_name, int id)
+FILE_SCOPE itest_ipc itest_ipc_setup(char const *base_name, int id)
 {
   itest_ipc result = {};
-  result.read.file = loki_buffer<128>("%s%d_stdout", base_name, id);
-  result.write.file = loki_buffer<128>("%s%d_stdin", base_name, id);
+  result.read.file = loki_fixed_string<128>("%s%d_stdout", base_name, id);
+  result.write.file = loki_fixed_string<128>("%s%d_stdin", base_name, id);
   itest_ipc_open_pipes(&result);
   return result;
 }
 
+// -------------------------------------------------------------------------------------------------
+//
+// start_daemon_params
+//
+// -------------------------------------------------------------------------------------------------
 void start_daemon_params::add_sequential_hardforks_until_version(int version)
 {
   for (int height = 0, curr_version = 7; curr_version <= version; ++curr_version, ++height)
@@ -150,6 +138,11 @@ static char const *make_msg_packet(char const *src, int *len, msg_packet *dest)
   return result;
 }
 
+// -------------------------------------------------------------------------------------------------
+//
+// itest
+//
+// -------------------------------------------------------------------------------------------------
 void itest_write_to_stdin(itest_ipc *ipc, char const *src)
 {
   int src_len = static_cast<int>(strlen(src));
@@ -192,7 +185,7 @@ itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const 
   return result;
 }
 
-itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *cmd, loki_str_lit find_str)
+itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *cmd, loki_string find_str)
 {
   itest_read_possible_value possible_values[] = { {find_str, false}, };
   itest_read_result result = itest_write_then_read_stdout_until(ipc, cmd, possible_values, 1);
@@ -203,7 +196,7 @@ itest_read_result itest_read_stdout(itest_ipc *ipc)
 {
   if (ipc->read.fd == 0)
   {
-    ipc->read.fd = open(ipc->read.file.c_str, O_RDONLY);
+    ipc->read.fd = open(ipc->read.file.str, O_RDONLY);
     if (ipc->read.fd == -1)
     {
       perror("Failed to open write pipe");
@@ -284,13 +277,39 @@ itest_read_result itest_read_stdout_until(itest_ipc *ipc, itest_read_possible_va
   }
 }
 
-void itest_read_until_then_write_stdin(itest_ipc *ipc, loki_str_lit find_str, char const *cmd)
+void itest_read_until_then_write_stdin(itest_ipc *ipc, loki_string find_str, char const *cmd)
 {
   itest_read_stdout_until(ipc, find_str.str);
   itest_write_to_stdin(ipc, cmd);
 }
 
-char const DAEMON_IPC_NAME[] = "loki_integration_testing_daemon";
+// -------------------------------------------------------------------------------------------------
+//
+// daemon
+//
+// -------------------------------------------------------------------------------------------------
+struct state_t
+{
+  std::atomic<int> num_wallets         = 0;
+  std::atomic<int> num_daemons         = 0;
+  std::atomic<int> free_p2p_port       = 1111;
+  std::atomic<int> free_rpc_port       = 2222;
+  std::atomic<int> free_zmq_port       = 3333;
+  std::atomic<int> free_quorumnet_port = 4444;
+};
+FILE_SCOPE state_t global_state;
+
+daemon_t create_daemon()
+{
+  daemon_t result       = {};
+  result.id             = global_state.num_daemons++;
+  result.p2p_port       = global_state.free_p2p_port++;
+  result.rpc_port       = global_state.free_rpc_port++;
+  result.zmq_rpc_port   = global_state.free_zmq_port++;
+  result.quorumnet_port = global_state.free_quorumnet_port++;
+  return result;
+}
+
 void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params, char const *terminal_name)
 {
   // TODO(doyle): Not very efficient
@@ -303,7 +322,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     start_daemon_params param = (num_params == 1) ? params[0] : params[curr_daemon_index];
     daemon_t *curr_daemon = daemons + curr_daemon_index;
 
-    loki_scratch_buf arg_buf = {};
+    loki_fixed_string<> arg_buf = {};
     arg_buf.append("--p2p-bind-port %d ",            curr_daemon->p2p_port);
     arg_buf.append("--rpc-bind-port %d ",            curr_daemon->rpc_port);
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
@@ -343,8 +362,8 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
         arg_buf.append("--stagnet ");
     }
 
-    loki_buffer<128> name("%s%d", DAEMON_IPC_NAME, curr_daemon->id);
-    arg_buf.append("--integration-test-pipe-name %s ", name.c_str);
+    loki_fixed_string<128> name("%s%d", DAEMON_IPC_NAME, curr_daemon->id);
+    arg_buf.append("--integration-test-pipe-name %s ", name.str);
 
     for (int other_daemon_index = 0; other_daemon_index < num_daemons; ++other_daemon_index)
     {
@@ -355,19 +374,19 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
       arg_buf.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
     }
 
-    arg_buf.append("%s ", param.custom_cmd_line.c_str);
+    arg_buf.append("%s ", param.custom_cmd_line.str);
     if (curr_daemon->id == 1)
     {
       // continue;
     }
 
-    loki_scratch_buf cmd_buf = {};
-    if (param.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, terminal_name, arg_buf.data, "bash");
-    else                          cmd_buf = loki_scratch_buf(LOKI_CMD_FMT, curr_daemon->id, terminal_name, arg_buf.data, "");
+    loki_fixed_string<> cmd_buf = {};
+    if (param.keep_terminal_open) cmd_buf = loki_fixed_string<>(LOKI_CMD_FMT, curr_daemon->id, terminal_name, arg_buf.str, "bash");
+    else                          cmd_buf = loki_fixed_string<>(LOKI_CMD_FMT, curr_daemon->id, terminal_name, arg_buf.str, "");
 
     threads.push_back(std::thread([curr_daemon, cmd_buf]()
     {
-      curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
+      curr_daemon->proc_handle = os_launch_process(cmd_buf.str);
       curr_daemon->ipc = itest_ipc_setup(DAEMON_IPC_NAME, curr_daemon->id);
       daemon_status(curr_daemon);
     }));
@@ -376,9 +395,6 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
   for (std::thread &daemon_launching_thread : threads)
     daemon_launching_thread.join();
 }
-
-// L6cuiMjoJs7hbv5qWYxCnEB1WJG827jrDAu4wEsrsnkYVu3miRHFrBy9pGcYch4TDn6dgatqJugUafWxCAELiq461p5mrSa
-// T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD
 
 daemon_t create_and_start_daemon(start_daemon_params params, char const *terminal_name)
 {
@@ -394,13 +410,18 @@ void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_da
   start_daemon(daemons, num_daemons, params, num_params, terminal_name);
 }
 
+// -------------------------------------------------------------------------------------------------
+//
+// wallet
+//
+// -------------------------------------------------------------------------------------------------
 wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, char const *terminal_name)
 {
   wallet_t result = {};
   result.id       = global_state.num_wallets++;
   result.nettype  = type;
 
-  loki_scratch_buf arg_buf = {};
+  loki_fixed_string<> arg_buf = {};
   if (result.nettype == loki_nettype::testnet)       arg_buf.append("--testnet ");
   else if (result.nettype == loki_nettype::fakenet)  arg_buf.append("--regtest ");
   else if (result.nettype == loki_nettype::stagenet) arg_buf.append("--stagenet ");
@@ -415,21 +436,21 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
   if (params.daemon)
     arg_buf.append("--daemon-address 127.0.0.1:%d ", params.daemon->rpc_port);
 
-  loki_buffer<128> name("%s%d", WALLET_IPC_NAME, result.id);
-  arg_buf.append("--integration-test-pipe-name %s ", name.c_str);
+  loki_fixed_string<128> name("%s%d", WALLET_IPC_NAME, result.id);
+  arg_buf.append("--integration-test-pipe-name %s ", name.str);
 
 #if 1
-  loki_scratch_buf cmd_buf = {};
-  if (params.keep_terminal_open) cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.data, "bash");
-  else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.data, "");
-  result.proc_handle = os_launch_process(cmd_buf.data);
+  loki_fixed_string<> cmd_buf = {};
+  if (params.keep_terminal_open) cmd_buf = loki_fixed_string<>(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.str, "bash");
+  else                           cmd_buf = loki_fixed_string<>(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.str, "");
+  result.proc_handle = os_launch_process(cmd_buf.str);
 
   result.ipc = itest_ipc_setup(WALLET_IPC_NAME, result.id);
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("Error: refresh failed"), true},
-    {LOKI_STR_LIT("Error: refresh failed: unexpected error: proxy exception in refresh thread"), true},
-    {LOKI_STR_LIT("Balance"),               false},
+    {LOKI_STRING("Error: refresh failed"), true},
+    {LOKI_STRING("Error: refresh failed: unexpected error: proxy exception in refresh thread"), true},
+    {LOKI_STRING("Balance"),               false},
   };
 
   itest_read_possible_value const *proxy_exception_error = possible_values + 1;
@@ -439,18 +460,11 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
   return result;
 }
 
-daemon_t create_daemon()
-{
-  daemon_t result       = {};
-  result.id             = global_state.num_daemons++;
-  result.p2p_port       = global_state.free_p2p_port++;
-  result.rpc_port       = global_state.free_rpc_port++;
-  result.zmq_rpc_port   = global_state.free_zmq_port++;
-  result.quorumnet_port = global_state.free_quorumnet_port++;
-  return result;
-}
-
-#include <iostream>
+// -------------------------------------------------------------------------------------------------
+//
+// loki_integration_tests
+//
+// -------------------------------------------------------------------------------------------------
 #include <vector>
 #include <thread>
 
@@ -462,7 +476,7 @@ struct work_queue
   std::atomic<size_t>           num_jobs_succeeded;
 };
 
-static work_queue global_work_queue;
+FILE_SCOPE work_queue global_work_queue;
 void thread_to_task_dispatcher()
 {
   for (;;)
@@ -486,7 +500,7 @@ void thread_to_task_dispatcher()
   }
 }
 
-static void print_help()
+FILE_SCOPE void print_help()
 {
   fprintf(stdout, "Integration Test Startup Flags\n\n");
   fprintf(stdout, "  --generate-blockchain         |                Generate a blockchain instead of running tests. Flags below are optionally specified.\n");
@@ -504,7 +518,7 @@ enum struct daemon_type
   service_node,
 };
 
-static void write_daemon_launch_script(helper_blockchain_environment const *environment, daemon_type type)
+FILE_SCOPE void write_daemon_launch_script(helper_blockchain_environment const *environment, daemon_type type)
 {
   daemon_t const *from  = nullptr;
   int num_from          = 0;
@@ -530,7 +544,7 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
 
   LOKI_FOR_EACH(daemon_index, num_from)
   {
-    loki_scratch_buf cmd_line("./lokid ");
+    loki_fixed_string<> cmd_line("./lokid ");
     daemon_t const *daemon = from + daemon_index;
     cmd_line.append("--data-dir daemon_%d ",  daemon->id);
     cmd_line.append("--fixed-difficulty %d ", environment->daemon_param.fixed_difficulty);
@@ -564,22 +578,22 @@ static void write_daemon_launch_script(helper_blockchain_environment const *envi
       cmd_line.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
     }
 
-    loki_scratch_buf file_name("./output/");
+    loki_fixed_string<> file_name("./output/");
     file_name.append("daemon_");
     file_name.append("%d", daemon->id);
     if (type == daemon_type::service_node)
       file_name.append("_service_node_%d", daemon_index);
     file_name.append(".sh");
 
-    if (!os_write_file(file_name.c_str, cmd_line.c_str, cmd_line.len))
+    if (!os_write_file(file_name.str, cmd_line.str, cmd_line.len))
     {
-      fprintf(stderr, "Failed to create daemon launcher script file: %s\n", file_name.c_str);
+      fprintf(stderr, "Failed to create daemon launcher script file: %s\n", file_name.str);
       continue;
     }
   }
 }
 
-static void delete_old_blockchain_files()
+FILE_SCOPE void delete_old_blockchain_files()
 {
   if (os_file_exists("./output/"))
   {
@@ -756,14 +770,14 @@ int main(int argc, char **argv)
 
     for (wallet_t &wallet : environment.wallets)
     {
-      loki_scratch_buf cmd_line("./loki-wallet-cli --daemon-address 127.0.0.1:2222 --wallet-file wallet_%d --password '' ", wallet.id);
+      loki_fixed_string<> cmd_line("./loki-wallet-cli --daemon-address 127.0.0.1:2222 --wallet-file wallet_%d --password '' ", wallet.id);
       if (environment.daemon_param.nettype      == loki_nettype::testnet)  cmd_line.append("--testnet ");
       else if (environment.daemon_param.nettype == loki_nettype::stagenet) cmd_line.append("--stagenet ");
 
-      loki_scratch_buf file_name("./output/wallet_%d.sh", wallet.id);
-      if (!os_write_file(file_name.c_str, cmd_line.c_str, cmd_line.len))
+      loki_fixed_string<> file_name("./output/wallet_%d.sh", wallet.id);
+      if (!os_write_file(file_name.str, cmd_line.str, cmd_line.len))
       {
-        fprintf(stderr, "Failed to create daemon launcher script file: %s\n", file_name.c_str);
+        fprintf(stderr, "Failed to create daemon launcher script file: %s\n", file_name.str);
         return false;
       }
     }

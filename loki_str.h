@@ -12,10 +12,10 @@ bool        char_is_alpha                      (char ch);
 bool        char_is_num                        (char ch);
 bool        char_is_alphanum                   (char ch);
 bool        char_is_whitespace                 (char ch);
-char const *str_find                           (char const *src,              char const *find);
-char const *str_find                           (char const *src, int src_len, char const *find, int find_len = -1);
-char const *str_find                           (loki_scratch_buf const *buf,  char const *find, int find_len = -1);
-bool        str_match                          (char const *src,              char const *find, int find_len = -1);
+char const *str_find                           (char const *src,                char const *find);
+char const *str_find                           (char const *src, int src_len,   char const *find, int find_len = -1);
+char const *str_find                           (loki_fixed_string<> const *buf, char const *find, int find_len = -1);
+bool        str_match                          (char const *src,                char const *find, int find_len = -1);
 uint64_t    str_parse_loki_amount              (char const *amount);
 char const *str_skip_to_next_digit             (char const *src);
 char const *str_skip_to_next_digit_inplace     (char const **src);
@@ -74,9 +74,9 @@ char const *str_find(char const *src, char const *find)
   return result;
 }
 
-char const *str_find(loki_scratch_buf const *buf, char const *find, int find_len)
+char const *str_find(loki_fixed_string<> const *buf, char const *find, int find_len)
 {
-  char const *result = str_find(buf->data, buf->len, find, find_len);
+  char const *result = str_find(buf->str, buf->len, find, find_len);
   return result;
 }
 

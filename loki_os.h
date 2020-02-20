@@ -20,7 +20,6 @@ bool  os_file_exists    (char const *path, os_file_info *info = nullptr);
 bool  os_write_file     (char const *path, char const *buf, int buf_len);
 
 #if defined(LOKI_OS_IMPLEMENTATION)
-
 #if defined(_WIN32)
   #define WIN32_LEAN_AND_MEAN
   #define NOMINMAX

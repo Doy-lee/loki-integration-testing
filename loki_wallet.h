@@ -19,7 +19,6 @@ struct wallet_params
 
 // TODO(doyle): This function should probably run by default since you almost always want it
 void                 wallet_set_default_testing_settings (wallet_t *wallet, wallet_params const params = {});
-
 bool                 wallet_address                      (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
 bool                 wallet_address_new                  (wallet_t *wallet, loki_addr *addr);
 uint64_t             wallet_balance                      (wallet_t *wallet, uint64_t *unlocked_balance);
@@ -82,45 +81,30 @@ bool                 wallet_register_service_node        (wallet_t *wallet, char
 #ifdef LOKI_WALLET_IMPLEMENTATION
 
 #include "loki_str.h"
-
 #include <stdint.h>
 
 void wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params)
 { 
-  loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
-  itest_write_then_read_stdout_until(&wallet->ipc, refresh_height.c_str, LOKI_STR_LIT("Wallet password"));
-  loki_buffer<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
-  itest_write_to_stdin(&wallet->ipc, ask_password.c_str);
-
-
-#if 0 // TODO(doyle): Hack. Can't get this to work reliably, right not the binaries are built to default to these settings
-#if 1
-  itest_write_then_read_stdout_until(&wallet->ipc, ask_password.c_str,   LOKI_STR_LIT("Wallet password: "));
-  // TODO(doyle): Hack, theres some sort of race condition here, it gets blocked waiting
-  os_sleep_ms(128);
-  itest_read_stdout(&wallet->ipc);
-
-#else
-  itest_write_then_read_stdout(&wallet->ipc, ask_password.c_str);
-  itest_write_then_read_stdout(&wallet->ipc, refresh_height.c_str);
-#endif
-#endif
+  loki_fixed_string<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
+  itest_write_then_read_stdout_until(&wallet->ipc, refresh_height.str, LOKI_STRING("Wallet password"));
+  loki_fixed_string<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
+  itest_write_to_stdin(&wallet->ipc, ask_password.str);
 }
 
 bool wallet_address(wallet_t *wallet, int index, loki_addr *addr)
 {
   if (addr) *addr = {};
 
-  loki_buffer<64> cmd("address %d", index);
+  loki_fixed_string<64> cmd("address %d", index);
 
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("Error: <index_min> is out of bound"), true},
-    {LOKI_STR_LIT("Primary address"), false},
-    {LOKI_STR_LIT("Untitled address"), false},
+    {LOKI_STRING("Error: <index_min> is out of bound"), true},
+    {LOKI_STRING("Primary address"), false},
+    {LOKI_STRING("Untitled address"), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
 
@@ -130,8 +114,8 @@ bool wallet_address(wallet_t *wallet, int index, loki_addr *addr)
 
   if (addr)
   {
-    loki_buffer<128> find = loki_buffer<128>("%d  ", index);
-    char const *start     = str_find(ptr, find.c_str);
+    loki_fixed_string<128> find = loki_fixed_string<128>("%d  ", index);
+    char const *start     = str_find(ptr, find.str);
     start += find.len;
     char const *end   = str_skip_to_next_whitespace(start);
     int len           = static_cast<int>(end - start);
@@ -159,10 +143,10 @@ uint64_t wallet_balance(wallet_t *wallet, uint64_t *unlocked_balance)
 {
   // Example
   // Balance: 0.000000000, unlocked balance: 0.000000000
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "balance", LOKI_STR_LIT("Balance: "));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "balance", LOKI_STRING("Balance: "));
   char const *ptr           = output.buf.c_str();
 
-  loki_str_lit balance_lit = LOKI_STR_LIT("Balance: ");
+  loki_string balance_lit = LOKI_STRING("Balance: ");
   char const *balance_str  = str_find(ptr, balance_lit.str);
   balance_str              = str_skip_to_next_digit(balance_str);
   uint64_t result          = str_parse_loki_amount(balance_str);
@@ -189,7 +173,7 @@ bool wallet_integrated_address(wallet_t *wallet, loki_addr *addr)
   // Example
   // Random payment ID: <d774b8dbac3b1c72>
   // Matching integrated address: TGAv1vAJmWm64Agf5uPZp87FaHsSxGMKbJpF5RTqcoNCGMciaqKcw8bVv4p5XeY9kZ7RnRjVpdrtLMosWHH85Kt1crWcWwZH9YN1FAg7NR2d 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "integrated_address", LOKI_STR_LIT("Matching integrated address"));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "integrated_address", LOKI_STRING("Matching integrated address"));
   LOKI_ASSERT_MSG(str_find(output.buf.c_str(), "Matching integrated address: "), "Failed to match in: %s", output.buf.c_str());
   char const *start = str_find(output.buf.c_str(), "Matching integrated address:");
   start             = str_find(start, ":");
@@ -208,7 +192,7 @@ bool wallet_payment_id(wallet_t *wallet, loki_payment_id64 *id)
   char const *start = str_find(output.buf.c_str(), "<");
   start++;
 
-  id->append("%.*s", LOKI_MIN(output.buf.size(), sizeof(id->c_str)), start);
+  id->append("%.*s", LOKI_MIN(output.buf.size(), sizeof(id->str)), start);
   return true;
 }
 
@@ -216,8 +200,8 @@ wallet_locked_stakes wallet_print_locked_stakes(wallet_t *wallet)
 {
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("No locked stakes known for this wallet on the network"), false},
-    {LOKI_STR_LIT("Unlock Height"), false},
+    {LOKI_STRING("No locked stakes known for this wallet on the network"), false},
+    {LOKI_STRING("Unlock Height"), false},
   };
 
   itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "print_locked_stakes", possible_values, LOKI_ARRAY_COUNT(possible_values));
@@ -282,9 +266,9 @@ bool wallet_refresh(wallet_t *wallet)
 {
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("Error: refresh failed"), true},
-    {LOKI_STR_LIT("Error: refresh failed unexpected error: proxy exception in refresh thread"), true},
-    {LOKI_STR_LIT("Balance"),               false},
+    {LOKI_STRING("Error: refresh failed"), true},
+    {LOKI_STRING("Error: refresh failed unexpected error: proxy exception in refresh thread"), true},
+    {LOKI_STRING("Balance"),               false},
   };
 
   itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "refresh", possible_values, LOKI_ARRAY_COUNT(possible_values));
@@ -293,41 +277,41 @@ bool wallet_refresh(wallet_t *wallet)
 
 bool wallet_set_daemon(wallet_t *wallet, daemon_t const *daemon)
 {
-  loki_buffer<64> cmd("set_daemon 127.0.0.1:%d", daemon->rpc_port);
-  itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, LOKI_STR_LIT("Daemon set to"));
+  loki_fixed_string<64> cmd("set_daemon 127.0.0.1:%d", daemon->rpc_port);
+  itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, LOKI_STRING("Daemon set to"));
   return true;
 }
 
 bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, uint64_t amount, loki_transaction_id *tx_id)
 {
-  loki_buffer<512> cmd("stake %s %zu", service_node_key->c_str, amount);
+  loki_fixed_string<512> cmd("stake %s %zu", service_node_key->str, amount);
 
   // Staking 25.000000000 for 1460 blocks a total fee of 0.076725600.  Is this okay?  (Y/Yes/N/No):
   {
     itest_read_possible_value const possible_values[] =
     {
-      {LOKI_STR_LIT("Exception thrown, staking process could not be completed"), true},
-      {LOKI_STR_LIT("Payment IDs cannot be used in a staking transaction"), true},
-      {LOKI_STR_LIT("Subaddresses cannot be used in a staking transaction"), true},
-      {LOKI_STR_LIT("The specified address must be owned by this wallet and be the primary address of the wallet"), true},
-      {LOKI_STR_LIT("Failed to query daemon for service node list"), true},
-      {LOKI_STR_LIT("Could not find service node in service node list, please make sure it is registered first."), true},
-      {LOKI_STR_LIT("Could not query the current network version, try later"), true},
-      {LOKI_STR_LIT("Could not query the current network block height, try later"), true},
-      {LOKI_STR_LIT("The service node cannot receive any more Loki from this wallet"), true},
-      {LOKI_STR_LIT("The service node already has the maximum number of participants and this wallet is not one of them"), true},
-      {LOKI_STR_LIT("You must contribute at least"), true},
-      {LOKI_STR_LIT("Constructed too many transations, please sweep_all first"), true},
-      {LOKI_STR_LIT("Error: No outputs found, or daemon is not ready"), true},
-      {LOKI_STR_LIT("Is this okay?"), false},
+      {LOKI_STRING("Exception thrown, staking process could not be completed"), true},
+      {LOKI_STRING("Payment IDs cannot be used in a staking transaction"), true},
+      {LOKI_STRING("Subaddresses cannot be used in a staking transaction"), true},
+      {LOKI_STRING("The specified address must be owned by this wallet and be the primary address of the wallet"), true},
+      {LOKI_STRING("Failed to query daemon for service node list"), true},
+      {LOKI_STRING("Could not find service node in service node list, please make sure it is registered first."), true},
+      {LOKI_STRING("Could not query the current network version, try later"), true},
+      {LOKI_STRING("Could not query the current network block height, try later"), true},
+      {LOKI_STRING("The service node cannot receive any more Loki from this wallet"), true},
+      {LOKI_STRING("The service node already has the maximum number of participants and this wallet is not one of them"), true},
+      {LOKI_STRING("You must contribute at least"), true},
+      {LOKI_STRING("Constructed too many transations, please sweep_all first"), true},
+      {LOKI_STRING("Error: No outputs found, or daemon is not ready"), true},
+      {LOKI_STRING("Is this okay?"), false},
     };
 
-    itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+    itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
     if (possible_values[output.matching_find_strs_index].is_fail_msg)
       return false;
   }
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STRING("You can check its status by using the `show_transfers` command"));
   if (!str_find(output.buf.c_str(), "Transaction successfully submitted, transaction <"))
     return false;
 
@@ -344,7 +328,7 @@ bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, uint
 uint64_t wallet_status(wallet_t *wallet)
 {
   // Refreshed N/K, synced, daemon RPC vX.Y
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "status", LOKI_STR_LIT("Refreshed"));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "status", LOKI_STRING("Refreshed"));
   char const *ptr        = output.buf.c_str();
   char const *height_str = str_skip_to_next_digit(ptr);
   uint64_t result        = static_cast<uint64_t>(atoi(height_str));
@@ -357,8 +341,8 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   // Example:
   // Transaction 1/1: ...
   // Sweeping 30298.277954908 for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
-  loki_buffer<128> cmd("sweep_all %s", dest);
-  itest_write_to_stdin(&wallet->ipc, cmd.c_str);
+  loki_fixed_string<128> cmd("sweep_all %s", dest);
+  itest_write_to_stdin(&wallet->ipc, cmd.str);
   itest_read_result output = itest_read_stdout_until(&wallet->ipc, "Transaction 1/");
 
   // Sending amount
@@ -370,8 +354,8 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("was rejected by daemon"), true},
-    {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
+    {LOKI_STRING("was rejected by daemon"), true},
+    {LOKI_STRING("You can check its status by using the `show_transfers` command"), false},
   };
 
   output = itest_write_then_read_stdout_until(&wallet->ipc, "y", possible_values, LOKI_ARRAY_COUNT(possible_values));
@@ -388,8 +372,8 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 
 bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_transaction *tx)
 {
-  loki_buffer<256> cmd("transfer %s %zu", dest, amount);
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, LOKI_STR_LIT("Is this okay?"));
+  loki_fixed_string<256> cmd("transfer %s %zu", dest, amount);
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, LOKI_STRING("Is this okay?"));
 
   // NOTE: Payment ID deprecated
 #if 0
@@ -398,7 +382,7 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
   if (requested_payment_id)
   {
     // Confirm no payment id
-    output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("Is this okay?"));
+    output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STRING("Is this okay?"));
   }
 #endif
 
@@ -431,7 +415,7 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
     }
   }
 
-  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
+  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STRING("You can check its status by using the `show_transfers` command"));
   if (tx) // Extract TX ID
   {
     assert(str_find(output.buf.c_str(), "Transaction successfully submitted, transaction <"));
@@ -444,7 +428,7 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
 
 bool wallet_transfer(wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx)
 {
-  bool result = wallet_transfer(wallet, dest->buf.c_str, amount, tx);
+  bool result = wallet_transfer(wallet, dest->buf.str, amount, tx);
   return result;
 }
 
@@ -470,18 +454,18 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
 {
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("Failed to generate signature to sign request. The key image: "), true},
-    {LOKI_STR_LIT("Failed to parse hex representation of key image"), true},
-    {LOKI_STR_LIT("unable to get network blockchain height from daemon: "), true},
-    {LOKI_STR_LIT("No contributions recognised by this wallet in service node: "), true},
-    {LOKI_STR_LIT("Unexpected 0 contributions in service node for this wallet "), true},
-    {LOKI_STR_LIT("No service node is known for: "), true},
-    {LOKI_STR_LIT("has already been requested to be unlocked, unlocking at height: "), true},
-    {LOKI_STR_LIT("You will continue receiving rewards until"), false},
+    {LOKI_STRING("Failed to generate signature to sign request. The key image: "), true},
+    {LOKI_STRING("Failed to parse hex representation of key image"), true},
+    {LOKI_STRING("unable to get network blockchain height from daemon: "), true},
+    {LOKI_STRING("No contributions recognised by this wallet in service node: "), true},
+    {LOKI_STRING("Unexpected 0 contributions in service node for this wallet "), true},
+    {LOKI_STRING("No service node is known for: "), true},
+    {LOKI_STRING("has already been requested to be unlocked, unlocking at height: "), true},
+    {LOKI_STRING("You will continue receiving rewards until"), false},
   };
 
-  loki_buffer<256> cmd("request_stake_unlock %s", snode_key->c_str);
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  loki_fixed_string<256> cmd("request_stake_unlock %s", snode_key->str);
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
 
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
@@ -495,8 +479,8 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
 
   itest_read_possible_value const possible_values2[] =
   {
-    {LOKI_STR_LIT("Error: Reason: "), true},
-    {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
+    {LOKI_STRING("Error: Reason: "), true},
+    {LOKI_STRING("You can check its status by using the `show_transfers` command"), false},
   };
   output = itest_write_then_read_stdout_until(&wallet->ipc, "y", possible_values2, LOKI_ARRAY_COUNT(possible_values2));
   return !possible_values2[output.matching_find_strs_index].is_fail_msg;
@@ -507,8 +491,8 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
   // Staking X for X blocks a total fee of X. Is this okay?
   itest_read_possible_value const possible_values[] =
   {
-    {LOKI_STR_LIT("Is this okay?"), false},
-    {LOKI_STR_LIT("Error: This service node is already registered"), true},
+    {LOKI_STRING("Is this okay?"), false},
+    {LOKI_STRING("Error: This service node is already registered"), true},
   };
 
   itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, registration_cmd, possible_values, LOKI_ARRAY_COUNT(possible_values));
@@ -534,7 +518,7 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
     }
   }
 
-  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("Transaction successfully submitted, transaction <"));
+  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STRING("Transaction successfully submitted, transaction <"));
   if (tx) // Extract TX ID
   {
     char const *id_start = str_find(output.buf.c_str(), "<");

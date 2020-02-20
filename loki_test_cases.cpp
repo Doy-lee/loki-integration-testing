@@ -13,7 +13,7 @@
 if (!str_match(src, EXPECT_str)) \
 { \
   test_result_var.failed   = true; \
-  test_result_var.fail_msg = loki_scratch_buf("[%s != %s] " fmt, src, EXPECT_str, ## __VA_ARGS__); \
+  test_result_var.fail_msg = loki_fixed_string<>("[%s != %s] " fmt, src, EXPECT_str, ## __VA_ARGS__); \
   return test_result_var; \
 }
 
@@ -21,7 +21,7 @@ if (!str_match(src, EXPECT_str)) \
 if (!(expr)) \
 { \
   test_result_var.failed   = true; \
-  test_result_var.fail_msg = loki_scratch_buf("[" #expr "] " fmt, ## __VA_ARGS__); \
+  test_result_var.fail_msg = loki_fixed_string<>("[" #expr "] " fmt, ## __VA_ARGS__); \
   return test_result_var; \
 }
 
@@ -71,7 +71,7 @@ void print_test_results(test_result const *test)
   char const *STATUS   = (test->failed) ? "FAILED" : "OK";
 
 
-  loki_scratch_buf buf("%s ", test->name.c_str);
+  loki_fixed_string<> buf("%s ", test->name.str);
   int total_len           = test->name.len + strlen(STATUS);
   int const remaining_len = LOKI_MAX(TARGET_LEN - total_len, 0);
   for (int i = 0; i < remaining_len; ++i) buf.append(".");
@@ -81,14 +81,14 @@ void print_test_results(test_result const *test)
 
   buf.append("%s (%05.2fs)" LOKI_ANSI_COLOR_RESET "\n", STATUS, test->duration_ms);
 
-  if (test->failed) buf.append("  Message: %s\n\n", test->fail_msg.c_str);
-  fprintf(stdout, "%s", buf.c_str);
+  if (test->failed) buf.append("  Message: %s\n\n", test->fail_msg.str);
+  fprintf(stdout, "%s", buf.str);
 }
 
 struct loki_err_context
 {
   bool              success;
-  loki_buffer<1024> err_msg;
+  loki_fixed_string<1024> err_msg;
   operator bool() { return success; }
 };
 
@@ -100,11 +100,11 @@ void helper_setup_blockchain_with_n_blocks(test_result const *context, daemon_t 
 {
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  *daemon                           = create_and_start_daemon(daemon_params, context->name.c_str);
+  *daemon                           = create_and_start_daemon(daemon_params, context->name.str);
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = daemon;
-  *wallet                           = create_and_start_wallet(daemon_params.nettype, wallet_params, context->name.c_str);
+  *wallet                           = create_and_start_wallet(daemon_params.nettype, wallet_params, context->name.str);
   wallet_set_default_testing_settings(wallet);
   daemon_mine_n_blocks(daemon, wallet, num_blocks);
   wallet_address(wallet, 0, addr);
@@ -124,9 +124,9 @@ test_result helper_setup_blockchain_with_1_service_node(test_result const *conte
     registration_params.contributors[0].addr               = *addr;
     registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
 
-    loki_scratch_buf registration_cmd = {}; // Register the service node
+    loki_fixed_string<> registration_cmd = {}; // Register the service node
     EXPECT(result, daemon_prepare_registration(daemon, &registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
-    wallet_register_service_node(wallet, registration_cmd.c_str);
+    wallet_register_service_node(wallet, registration_cmd.str);
     daemon_mine_n_blocks(daemon, wallet, 1);
 
     // Check service node registered
@@ -209,7 +209,7 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
   daemon_t *all_daemons = environment->all_daemons.data();
   int total_daemons     = num_service_nodes + num_daemons;
   {
-    create_and_start_multi_daemons(all_daemons, total_daemons, &daemon_param, 1, context->name.c_str);
+    create_and_start_multi_daemons(all_daemons, total_daemons, &daemon_param, 1, context->name.str);
     LOKI_FOR_EACH(daemon_index, num_service_nodes)
     {
       if (!daemon_print_sn_key(environment->service_nodes + daemon_index, &environment->snode_keys[daemon_index]))
@@ -226,7 +226,7 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = all_daemons + 0;
-    *wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.c_str);
+    *wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.str);
     wallet_set_default_testing_settings(wallet);
 
     if (!wallet_address(wallet, 0, wallet_addr))
@@ -268,9 +268,9 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
     params.contributors[params.num_contributors].addr     = environment->wallets_addr[0];
     params.contributors[params.num_contributors++].amount = 100;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     if (!daemon_prepare_registration(&environment->service_nodes[daemon_index], &params, &registration_cmd) ||
-        !wallet_register_service_node(&environment->wallets[0], registration_cmd.c_str))
+        !wallet_register_service_node(&environment->wallets[0], registration_cmd.str))
     {
       return false;
     }
@@ -291,7 +291,7 @@ bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
 {
   // Start up daemon and wallet
   {
-    create_and_start_multi_daemons(daemons, num_daemons, daemon_params, num_daemons, context->name.c_str);
+    create_and_start_multi_daemons(daemons, num_daemons, daemon_params, num_daemons, context->name.str);
     LOKI_FOR_EACH(daemon_index, num_daemons)
     {
       if (!daemon_print_sn_key(daemons + daemon_index, snode_keys + daemon_index))
@@ -300,7 +300,7 @@ bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = daemons + 0;
-    *wallet = create_and_start_wallet(daemon_params[0].nettype, wallet_params, context->name.c_str);
+    *wallet = create_and_start_wallet(daemon_params[0].nettype, wallet_params, context->name.str);
     wallet_set_default_testing_settings(wallet);
   }
 
@@ -317,9 +317,9 @@ bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
     params.contributors[params.num_contributors].addr     = *addr;
     params.contributors[params.num_contributors++].amount = 100;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     if (!daemon_prepare_registration(daemons + daemon_index, &params, &registration_cmd) ||
-        !wallet_register_service_node(wallet, registration_cmd.c_str))
+        !wallet_register_service_node(wallet, registration_cmd.str))
     {
       return false;
     }
@@ -334,7 +334,7 @@ void helper_ban_daemons(BanType type, daemon_t *src, daemon_t *daemons_to_ban, i
   LOKI_FOR_EACH(daemon_index, num_daemons_to_ban)
   {
     // daemon_t const *daemon_to_ban = daemons_to_ban + daemon_index;
-    loki_buffer<32> ban_ip("127.0.0.1");
+    loki_fixed_string<32> ban_ip("127.0.0.1");
 
     if (type == BanType::Unban) daemon_unban(src, &ban_ip);
     else                        daemon_ban(src, &ban_ip);
@@ -370,7 +370,7 @@ test_result foo()
   {
     LOKI_FOR_EACH(i, NUM_DAEMONS)
       daemon_params[i].load_latest_hardfork_versions();
-    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.c_str);
+    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.str);
   }
 
   loki_addr addr = {};
@@ -441,7 +441,7 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   {
     start_wallet_params naughty_wallet_params = {};
     naughty_wallet_params.daemon              = naughty_daemon;
-    wallet_t naughty_wallet                   = create_and_start_wallet(daemon_params.nettype, naughty_wallet_params, result.name.c_str);
+    wallet_t naughty_wallet                   = create_and_start_wallet(daemon_params.nettype, naughty_wallet_params, result.name.str);
     wallet_set_default_testing_settings(&naughty_wallet);
     daemon_mine_until_height(naughty_daemon, &naughty_wallet, target_naughty_daemon_height);
     wallet_exit(&naughty_wallet);
@@ -496,7 +496,7 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   EXPECT(result, daemon_print_block(environment.service_nodes + 0, target_blockchain_height - 1, &good_hash), "Failed to print block for height: %zu", target_blockchain_height);
   EXPECT(result, daemon_print_block(naughty_daemon, target_blockchain_height - 1, &naughty_hash), "Failed to print block for height: %zu", target_blockchain_height);
 
-  EXPECT(result, good_hash == naughty_hash, "%s == %s, Hashes for top block between naughty and main chain did not match. Naughty chain did NOT reorg to main chain.", good_hash.c_str, naughty_hash.c_str);
+  EXPECT(result, good_hash == naughty_hash, "%s == %s, Hashes for top block between naughty and main chain did not match. Naughty chain did NOT reorg to main chain.", good_hash.str, naughty_hash.str);
   return result;
 }
 
@@ -514,7 +514,7 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
   daemon_t daemons[NUM_DAEMONS]          = {};
 
-  create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.c_str);
+  create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.str);
   for (size_t i = 0; i < NUM_SERVICE_NODES; ++i)
     LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
 
@@ -523,7 +523,7 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = daemons + 0;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
   wallet_set_default_testing_settings(&wallet);
 
   daemon_t *new_peer = daemons + NUM_SERVICE_NODES;
@@ -545,10 +545,10 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
 
     LOKI_FOR_ITERATOR(daemon, daemons, NUM_SERVICE_NODES) // Register each daemon on the network
     {
-      loki_scratch_buf registration_cmd = {};
+      loki_fixed_string<> registration_cmd = {};
       loki_transaction register_tx      = {};
       EXPECT(result, daemon_prepare_registration (daemon, &register_params, &registration_cmd), "Failed to prepare registration");
-      EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str, &register_tx),"Failed to register service node");
+      EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str, &register_tx),"Failed to register service node");
     }
   }
 
@@ -590,7 +590,7 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
   loki_hash64 good_hash, new_hash = {};
   EXPECT(result, daemon_print_block(daemons + 0, target_blockchain_height - 1, &good_hash), "Failed to print block for height: %zu", target_blockchain_height);
   EXPECT(result, daemon_print_block(new_peer, target_blockchain_height - 1, &new_hash), "Failed to print block for height: %zu", target_blockchain_height);
-  EXPECT(result, good_hash == new_hash, "%s == %s, Hashes for top block between naughty and main chain did not match. Naughty chain did NOT reorg to main chain.", good_hash.c_str, new_hash.c_str);
+  EXPECT(result, good_hash == new_hash, "%s == %s, Hashes for top block between naughty and main chain did not match. Naughty chain did NOT reorg to main chain.", good_hash.str, new_hash.str);
   return result;
 }
 
@@ -770,7 +770,7 @@ test_result latest__deregistration__n_unresponsive_node()
   daemon_t       *deregister_daemons     = daemons    + num_register_daemons;
   loki_snode_key *deregister_snode_keys  = snode_keys + num_register_daemons;
 
-  create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.c_str);
+  create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.str);
   for (size_t i = 0; i < NUM_DAEMONS; ++i)
   {
     LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
@@ -778,7 +778,7 @@ test_result latest__deregistration__n_unresponsive_node()
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = daemons + 0;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
   wallet_set_default_testing_settings(&wallet);
 
   LOKI_DEFER
@@ -803,13 +803,13 @@ test_result latest__deregistration__n_unresponsive_node()
 
     LOKI_FOR_EACH(i, NUM_DAEMONS) // Register each daemon on the network
     {
-      loki_scratch_buf registration_cmd = {};
+      loki_fixed_string<> registration_cmd = {};
       daemon_t *daemon                  = daemons + i;
       EXPECT(result, daemon_prepare_registration (daemon, &register_params, &registration_cmd), "Failed to prepare registration");
 
       loki_transaction register_tx = {};
-      EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str, &register_tx),"Failed to register service node");
-      daemon_relay_tx(daemons + 0, register_tx.id.c_str);
+      EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str, &register_tx),"Failed to register service node");
+      daemon_relay_tx(daemons + 0, register_tx.id.str);
 
       daemon_toggle_checkpoint_quorum(daemon);
       daemon_toggle_obligation_checkpointing(daemon);
@@ -821,7 +821,7 @@ test_result latest__deregistration__n_unresponsive_node()
   {
     daemon_t *daemon = deregister_daemons + i;
 #if 0
-    loki_buffer<32> ip("127.0.0.1");
+    loki_fixed_string<32> ip("127.0.0.1");
     daemon_ban(daemon, &ip);
 #else
     daemon_exit(daemon);
@@ -908,14 +908,14 @@ test_result latest__prepare_registration__check_all_solo_stake_forms_valid_regis
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); };
 
   // NOTE(loki): Mine enough to reach the latest fork
   {
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
     daemon_mine_n_blocks(&daemon, &wallet, 32);
     wallet_exit(&wallet);
@@ -930,11 +930,11 @@ test_result latest__prepare_registration__check_all_solo_stake_forms_valid_regis
   for (int i = 0; i < 101; ++i) // TODO(doyle): Assumes staking requirement
   {
     registration_params.contributors[0].amount = i;
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
 
     // Expected Format: register_service_node <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-    char const *register_str      = str_find(registration_cmd.c_str, "register_service_node");
+    char const *register_str      = str_find(registration_cmd.str, "register_service_node");
     char const *prev              = register_str;
 
     char const *operator_portions = str_skip_to_next_word_inplace(&prev);
@@ -958,14 +958,14 @@ test_result latest__prepare_registration__check_solo_stake()
   daemon_params.load_latest_hardfork_versions();
   daemon_params.keep_terminal_open = false;
 
-  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); };
 
   // NOTE(loki): Mine enough to reach the latest fork
   {
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
     daemon_mine_n_blocks(&daemon, &wallet, 32);
     wallet_exit(&wallet);
@@ -978,11 +978,11 @@ test_result latest__prepare_registration__check_solo_stake()
   registration_params.contributors[0].addr.set_normal_addr(wallet1);
   registration_params.contributors[0].amount = 100; // TODO(doyle): Assumes staking requirement
 
-  loki_scratch_buf registration_cmd = {};
+  loki_fixed_string<> registration_cmd = {};
   EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
 
   // Expected Format: register_service_node <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str      = str_find(registration_cmd.c_str, "register_service_node");
+  char const *register_str      = str_find(registration_cmd.str, "register_service_node");
   char const *prev              = register_str;
 
   char const *operator_portions = str_skip_to_next_word_inplace(&prev);
@@ -1004,14 +1004,14 @@ test_result latest__prepare_registration__check_100_percent_operator_cut_stake()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); };
 
   // NOTE(loki): Mine enough to reach the latest fork
   {
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
     daemon_mine_n_blocks(&daemon, &wallet, 32);
     wallet_exit(&wallet);
@@ -1029,11 +1029,11 @@ test_result latest__prepare_registration__check_100_percent_operator_cut_stake()
   registration_params.contributors[1].addr.set_normal_addr(wallet2);
   registration_params.contributors[1].amount = 25; // TODO(doyle): Assumes testnet staking requirement of 100
 
-  loki_scratch_buf registration_cmd = {};
+  loki_fixed_string<> registration_cmd = {};
   EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration");
 
   // Expected Format: register_service_node [auto] <operator cut> <address> <fraction> [<address> <fraction> [...]]]
-  char const *register_str     = str_find(registration_cmd.c_str, "register_service_node");
+  char const *register_str     = str_find(registration_cmd.str, "register_service_node");
   char const *prev             = register_str;
 
   char const *operator_cut     = str_skip_to_next_word_inplace(&prev);
@@ -1065,11 +1065,11 @@ test_result latest__print_locked_stakes__check_no_locked_stakes()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
   }
 
@@ -1092,11 +1092,11 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
   }
 
@@ -1112,9 +1112,9 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes()
     params.contributors[params.num_contributors].addr     = my_addr;
     params.contributors[params.num_contributors++].amount = half_stake_requirement;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str),    "Failed to register service node");
   }
 
   daemon_mine_n_blocks(&daemon, &wallet, 1); // Get registration onto the chain
@@ -1135,7 +1135,7 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes()
 
     wallet_locked_stake const *stake = stakes.locked_stakes + 0;
     EXPECT(result, stake->total_locked_amount == LOKI_FAKENET_STAKING_REQUIREMENT * LOKI_ATOMIC_UNITS, "Total locked amount: %zu didn't match expected: %zu", stake->total_locked_amount, LOKI_FAKENET_STAKING_REQUIREMENT * LOKI_ATOMIC_UNITS);
-    EXPECT(result, stake->snode_key == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->snode_key == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.str, snode_key.str);
 
     LOKI_FOR_EACH(amount_index, stake->locked_amounts_len)
     {
@@ -1156,7 +1156,7 @@ test_result latest__register_service_node__allow_4_stakers()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.str);
   wallet_t  stakers[4]      = {};
   loki_addr stakers_addr[4] = {};
 
@@ -1166,7 +1166,7 @@ test_result latest__register_service_node__allow_4_stakers()
   // Mine and unlock funds
   for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
   {
-    stakers[i]       = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    stakers[i]       = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_t *staker = stakers + i;
 
     wallet_set_default_testing_settings(staker);
@@ -1196,9 +1196,9 @@ test_result latest__register_service_node__allow_4_stakers()
     registration_params.contributors[i].amount = 25; // TODO(doyle): Assumes testnet staking requirement of 100
   }
 
-  loki_scratch_buf registration_cmd = {};
+  loki_fixed_string<> registration_cmd = {};
   daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
-  EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+  EXPECT(result, wallet_register_service_node(owner, registration_cmd.str), "Failed to register service node");
   daemon_mine_n_blocks(&daemon, owner, 1);
 
   // Each person stakes their part to the wallet
@@ -1224,7 +1224,7 @@ test_result latest__register_service_node__allow_70_20_and_10_open_for_contribut
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.str);
   wallet_t  stakers[2]      = {};
   loki_addr stakers_addr[2] = {};
 
@@ -1234,7 +1234,7 @@ test_result latest__register_service_node__allow_70_20_and_10_open_for_contribut
   // Mine and unlock funds
   for (int i = 0; i < (int)LOKI_ARRAY_COUNT(stakers); ++i)
   {
-    stakers[i]       = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    stakers[i]       = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_t *staker = stakers + i;
 
     wallet_set_default_testing_settings(staker);
@@ -1266,9 +1266,9 @@ test_result latest__register_service_node__allow_70_20_and_10_open_for_contribut
     registration_params.contributors[1].amount = 20; // TODO(doyle): Assumes testnet staking requirement of 100
   }
 
-  loki_scratch_buf registration_cmd = {};
+  loki_fixed_string<> registration_cmd = {};
   daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
-  EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+  EXPECT(result, wallet_register_service_node(owner, registration_cmd.str), "Failed to register service node");
   daemon_mine_n_blocks(&daemon, owner, 1);
 
   // Each person stakes their part to the wallet
@@ -1308,19 +1308,19 @@ test_result latest__register_service_node__allow_43_23_13_21_reserved_contributi
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
-      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
       EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
-    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
     EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
@@ -1351,9 +1351,9 @@ test_result latest__register_service_node__allow_43_23_13_21_reserved_contributi
     params.contributors[params.num_contributors].addr     = wallet_addrs[3];
     params.contributors[params.num_contributors++].amount = wallet3_contributes;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.str),    "Failed to register service node");
   }
   daemon_mine_n_blocks(&daemon, &dummy_wallet, 5); // Get registration onto the chain
 
@@ -1386,7 +1386,7 @@ test_result latest__register_service_node__allow_43_23_13_21_reserved_contributi
     EXPECT(result, locked_stakes.locked_stakes_len == 1, "We staked, so we should have locked key images");
 
     wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
-    EXPECT(result, stake->snode_key           == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->snode_key           == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.str, snode_key.str);
     EXPECT(result, stake->locked_amounts_len  == 1,         "We only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
 
     uint64_t amount = stake->locked_amounts[0];
@@ -1427,19 +1427,19 @@ test_result latest__register_service_node__allow_87_13_reserved_contribution()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
-      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
       EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
-    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
     EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "failed to get the 0th subaddress, i.e the main address of wallet");
 
@@ -1461,9 +1461,9 @@ test_result latest__register_service_node__allow_87_13_reserved_contribution()
     params.contributors[params.num_contributors].addr     = wallet_addrs[1];
     params.contributors[params.num_contributors++].amount = 13;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "failed to register service node");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.str),    "failed to register service node");
   }
   daemon_mine_n_blocks(&daemon, &dummy_wallet, 5); // get registration onto the chain
 
@@ -1482,7 +1482,7 @@ test_result latest__register_service_node__allow_87_13_reserved_contribution()
     EXPECT(result, locked_stakes.locked_stakes_len == 1, "we staked, so we should have locked key images");
 
     wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
-    EXPECT(result, stake->snode_key           == snode_key, "locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->snode_key           == snode_key, "locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.str, snode_key.str);
     EXPECT(result, stake->locked_amounts_len  == 1,         "we only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
 
     uint64_t amount = stake->locked_amounts[0];
@@ -1521,19 +1521,19 @@ test_result latest__register_service_node__allow_87_13_contribution()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
-      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
       EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
-    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
     EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "failed to get the 0th subaddress, i.e the main address of wallet");
 
@@ -1552,9 +1552,9 @@ test_result latest__register_service_node__allow_87_13_contribution()
     params.contributors[params.num_contributors].addr     = wallet_addrs[0];
     params.contributors[params.num_contributors++].amount = 87;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "failed to register service node");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.str),    "failed to register service node");
   }
   daemon_mine_n_blocks(&daemon, &dummy_wallet, 1); // get registration onto the chain
 
@@ -1573,7 +1573,7 @@ test_result latest__register_service_node__allow_87_13_contribution()
     EXPECT(result, locked_stakes.locked_stakes_len == 1, "we staked, so we should have locked key images");
 
     wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
-    EXPECT(result, stake->snode_key           == snode_key, "locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->snode_key           == snode_key, "locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.str, snode_key.str);
     EXPECT(result, stake->locked_amounts_len  == 1,         "we only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
 
     uint64_t amount = stake->locked_amounts[0];
@@ -1596,11 +1596,11 @@ test_result latest__register_service_node__disallow_register_twice()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  daemon_t daemon                   = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon                   = create_and_start_daemon(daemon_params, result.name.str);
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
   wallet_set_default_testing_settings(&wallet);
 
@@ -1612,7 +1612,7 @@ test_result latest__register_service_node__disallow_register_twice()
   }
 
   // Register the service node
-  loki_scratch_buf registration_cmd = {};
+  loki_fixed_string<> registration_cmd = {};
   {
     daemon_prepare_registration_params registration_params = {};
     registration_params.num_contributors                   = 1;
@@ -1620,7 +1620,7 @@ test_result latest__register_service_node__disallow_register_twice()
     registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
 
     EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
-    wallet_register_service_node(&wallet, registration_cmd.c_str);
+    wallet_register_service_node(&wallet, registration_cmd.str);
     daemon_mine_n_blocks(&daemon, &wallet, 1);
 
     // Check service node registered
@@ -1629,7 +1629,7 @@ test_result latest__register_service_node__disallow_register_twice()
   }
 
   // Register twice, should be disallowed
-  EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str) == false,
+  EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str) == false,
       "You should not be allowed to register twice, if detected on the network");
 
   return result;
@@ -1654,9 +1654,9 @@ test_result latest__register_service_node__check_unlock_time_is_0()
     registration_params.contributors[0].addr               = wallet_addr;
     registration_params.contributors[0].amount             = 100; // TODO(doyle): Assuming testnet
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration(&daemon, &registration_params, &registration_cmd), "Failed to prepare registration for Service Node");
-    wallet_register_service_node(&wallet, registration_cmd.c_str, &register_tx);
+    wallet_register_service_node(&wallet, registration_cmd.str, &register_tx);
     daemon_mine_n_blocks(&daemon, &wallet, 1);
 
     // Check service node registered
@@ -1665,7 +1665,7 @@ test_result latest__register_service_node__check_unlock_time_is_0()
   }
 
   std::string tx_output;
-  daemon_print_tx(&daemon, register_tx.id.c_str, &tx_output);
+  daemon_print_tx(&daemon, register_tx.id.str, &tx_output);
 
   char const *output_unlock_times_label = str_find(tx_output.c_str(), "output_unlock_times");
   EXPECT(result, output_unlock_times_label, "Failed to find output_unlock_times label in print_tx");
@@ -1702,19 +1702,19 @@ test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
-      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
       EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
-    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
     EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
@@ -1737,9 +1737,9 @@ test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
       params.contributors[params.num_contributors++].amount = staking_requirement_per_contributor;
     }
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.str),    "Failed to register service node");
   }
   daemon_mine_n_blocks(&daemon, &dummy_wallet, 1); // Get registration onto the chain
 
@@ -1758,7 +1758,7 @@ test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
     EXPECT(result, locked_stakes.locked_stakes_len == 1, "We staked, so we should have locked key images");
 
     wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
-    EXPECT(result, stake->snode_key           == snode_key,                                               "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->snode_key           == snode_key,                                               "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.str, snode_key.str);
     EXPECT(result, stake->total_locked_amount == staking_requirement_per_contributor * LOKI_ATOMIC_UNITS, "Total locked amount: %zu didn't match expected: %zu",                                              stake->total_locked_amount, LOKI_FAKENET_STAKING_REQUIREMENT);
 
     EXPECT(result, stake->locked_amounts_len == 1, "We only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
@@ -1796,7 +1796,7 @@ test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
 
   // Sweep to dummy wallet
   LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
-    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.c_str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
+    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
 
   // Check the remaining balance is zero, NOTE: +2 to get the sweep transaction on chain
   daemon_mine_n_blocks(&daemon, &dummy_wallet, LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW + 2);
@@ -1825,12 +1825,12 @@ test_result latest__request_stake_unlock__check_unlock_height()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
-    dummy_wallet                      = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
+    dummy_wallet                      = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
 
     wallet_set_default_testing_settings(&wallet);
     wallet_set_default_testing_settings(&dummy_wallet);
@@ -1851,9 +1851,9 @@ test_result latest__request_stake_unlock__check_unlock_height()
     params.contributors[params.num_contributors].addr     = wallet_addr;
     params.contributors[params.num_contributors++].amount = LOKI_FAKENET_STAKING_REQUIREMENT; // TODO(doyle): Assuming fakechain requirement of 100
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str),    "Failed to register service node");
   }
 
   daemon_mine_n_blocks(&daemon, &wallet, 1); // Get registration onto the chain
@@ -1881,12 +1881,12 @@ test_result latest__request_stake_unlock__disallow_request_on_non_existent_node(
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon = create_and_start_daemon(daemon_params, result.name.str);
     LOKI_ASSERT(daemon_print_sn_key(&daemon, &snode_key));
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
   }
 
@@ -1908,12 +1908,12 @@ test_result latest__request_stake_unlock__disallow_request_twice()
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon = create_and_start_daemon(daemon_params, result.name.str);
     LOKI_ASSERT(daemon_print_sn_key(&daemon, &snode_key));
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    wallet                            = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&wallet);
   }
 
@@ -1930,9 +1930,9 @@ test_result latest__request_stake_unlock__disallow_request_twice()
     params.contributors[params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
     wallet_address(&wallet, 0, &params.contributors[params.num_contributors++].addr);
 
-    loki_scratch_buf cmd = {};
+    loki_fixed_string<> cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, cmd.c_str),     "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(&wallet, cmd.str),     "Failed to register service node");
     daemon_mine_n_blocks(&daemon, &wallet, 1); // Mine and become a service node
   }
 
@@ -1966,9 +1966,9 @@ test_result latest__stake__allow_incremental_stakes_with_1_contributor()
     params.contributors[params.num_contributors].addr     = my_addr;
     params.contributors[params.num_contributors++].amount = 25;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str),    "Failed to register service node");
     daemon_mine_n_blocks(&daemon, &wallet, 1);
   }
 
@@ -2015,19 +2015,19 @@ test_result latest__stake__check_incremental_stakes_decreasing_min_contribution(
   {
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    daemon                            = create_and_start_daemon(daemon_params, result.name.c_str);
+    daemon                            = create_and_start_daemon(daemon_params, result.name.str);
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
-      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+      wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
       EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
-    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
     EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
@@ -2046,9 +2046,9 @@ test_result latest__stake__check_incremental_stakes_decreasing_min_contribution(
     params.contributors[params.num_contributors].addr     = wallet_addrs[0];
     params.contributors[params.num_contributors++].amount = 50;
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &registration_cmd), "Failed to prepare registration");
-    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.c_str),    "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(wallets + 0, registration_cmd.str),    "Failed to register service node");
   }
   daemon_mine_n_blocks(&daemon, &dummy_wallet, 1); // Get registration onto the chain
 
@@ -2087,7 +2087,7 @@ test_result latest__stake__check_incremental_stakes_decreasing_min_contribution(
     EXPECT(result, locked_stakes.locked_stakes_len == 1, "We staked, so we should have locked key images");
 
     wallet_locked_stake const *stake = locked_stakes.locked_stakes + 0;
-    EXPECT(result, stake->snode_key           == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.c_str, snode_key.c_str);
+    EXPECT(result, stake->snode_key           == snode_key, "Locked stake service node key didn't match what we expected, stake->snode_key: %s, snode_key: %s", stake->snode_key.str, snode_key.str);
     EXPECT(result, stake->locked_amounts_len  == 1,         "We only made one contribution, so there should only be one locked amount, locked_amounts_len: %d", stake->locked_amounts_len);
 
     uint64_t amount = stake->locked_amounts[0];
@@ -2131,7 +2131,7 @@ test_result latest__stake__check_incremental_stakes_decreasing_min_contribution(
 
   // Sweep to dummy wallet
   LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
-    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.c_str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
+    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
 
   // Check the remaining balance is zero
   daemon_mine_n_blocks(&daemon, &dummy_wallet, LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW + 2); // NOTE: +1 to get tx on chain
@@ -2160,7 +2160,7 @@ test_result latest__stake__check_transfer_doesnt_used_locked_key_images()
   helper_setup_blockchain_with_1_service_node(&result, &daemon, &wallet, &my_addr, &snode_key);
 
   daemon_mine_n_blocks(&daemon, &wallet, 1); // Get registration onto the chain
-  EXPECT(result, wallet_sweep_all(&wallet, my_addr.buf.c_str, nullptr), "Sweeping all outputs should avoid any key images/outputs that are locked and so should succeed.");
+  EXPECT(result, wallet_sweep_all(&wallet, my_addr.buf.str, nullptr), "Sweeping all outputs should avoid any key images/outputs that are locked and so should succeed.");
   return result;
 }
 
@@ -2172,7 +2172,7 @@ test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.str);
   wallet_t  stakers[2]      = {};
   loki_addr stakers_addr[2] = {};
 
@@ -2181,7 +2181,7 @@ test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node()
   {
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    stakers[i]                        = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    stakers[i]                        = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_t *staker                  = stakers + i;
 
     wallet_set_default_testing_settings(staker);
@@ -2213,9 +2213,9 @@ test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node()
       registration_params.contributors[i].amount = half_stake_requirement; // TODO(doyle): Assumes testnet staking requirement of 100
     }
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
-    EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(owner, registration_cmd.str), "Failed to register service node");
     daemon_mine_n_blocks(&daemon, owner, 1);
   }
 
@@ -2242,7 +2242,7 @@ test_result latest__stake__disallow_staking_when_all_amounts_reserved()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon           = create_and_start_daemon(daemon_params, result.name.str);
   wallet_t  stakers[2]      = {};
   loki_addr stakers_addr[2] = {};
 
@@ -2251,7 +2251,7 @@ test_result latest__stake__disallow_staking_when_all_amounts_reserved()
   {
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = &daemon;
-    stakers[i]                        = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+    stakers[i]                        = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_t *staker                  = stakers + i;
 
     wallet_set_default_testing_settings(staker);
@@ -2282,9 +2282,9 @@ test_result latest__stake__disallow_staking_when_all_amounts_reserved()
       registration_params.contributors[i].amount = LOKI_FAKENET_STAKING_REQUIREMENT/registration_params.num_contributors; // TODO(doyle): Assumes testnet staking requirement of 100
     }
 
-    loki_scratch_buf registration_cmd = {};
+    loki_fixed_string<> registration_cmd = {};
     daemon_prepare_registration (&daemon, &registration_params, &registration_cmd);
-    EXPECT(result, wallet_register_service_node(owner, registration_cmd.c_str), "Failed to register service node");
+    EXPECT(result, wallet_register_service_node(owner, registration_cmd.str), "Failed to register service node");
     daemon_mine_n_blocks(&daemon, owner, 1);
   }
 
@@ -2317,12 +2317,12 @@ test_result latest__transfer__check_fee_amount_80x_increase()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.str);
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
-  wallet_t src_wallet               = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
-  wallet_t dest_wallet              = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+  wallet_t src_wallet               = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
+  wallet_t dest_wallet              = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&src_wallet); wallet_exit(&dest_wallet); };
 
   wallet_set_default_testing_settings(&src_wallet);
@@ -2338,7 +2338,7 @@ test_result latest__transfer__check_fee_amount_80x_increase()
   {
     int64_t const fee_estimate = 166634590;
     loki_transaction tx = {};
-    EXPECT(result, wallet_transfer(&src_wallet, dest_addr.buf.c_str, 50, &tx), "Failed to construct TX");
+    EXPECT(result, wallet_transfer(&src_wallet, dest_addr.buf.str, 50, &tx), "Failed to construct TX");
     daemon_mine_n_blocks(&daemon, &src_wallet, LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW + 1); // NOTE: +1 to get TX on chain
 
     int64_t fee                = static_cast<int64_t>(tx.fee);
@@ -2351,7 +2351,7 @@ test_result latest__transfer__check_fee_amount_80x_increase()
     int64_t const fee_estimate = 115515560;
     wallet_refresh(&dest_wallet);
     loki_transaction tx = {};
-    EXPECT(result, wallet_transfer(&dest_wallet, src_addr.buf.c_str, 45, &tx), "Failed to construct TX");
+    EXPECT(result, wallet_transfer(&dest_wallet, src_addr.buf.str, 45, &tx), "Failed to construct TX");
 
     int64_t fee   = static_cast<int64_t>(tx.fee);
     int64_t delta = LOKI_ABS(fee_estimate - fee);
@@ -2368,12 +2368,12 @@ test_result v11__transfer__check_fee_amount_bulletproofs()
 
   start_daemon_params daemon_params = {};
   daemon_params.add_sequential_hardforks_until_version(11);
-  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.c_str);
+  daemon_t daemon = create_and_start_daemon(daemon_params, result.name.str);
 
   start_wallet_params wallet_params = {};
   wallet_params.daemon              = &daemon;
-  wallet_t src_wallet               = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
-  wallet_t dest_wallet              = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.c_str);
+  wallet_t src_wallet               = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
+  wallet_t dest_wallet              = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&src_wallet); wallet_exit(&dest_wallet); };
 
   wallet_set_default_testing_settings(&src_wallet);
@@ -2390,7 +2390,7 @@ test_result v11__transfer__check_fee_amount_bulletproofs()
   // Transfer from wallet to dest
   {
     loki_transaction tx = {};
-    EXPECT(result, wallet_transfer(&src_wallet, dest_addr.buf.c_str, 50, &tx), "Failed to construct TX");
+    EXPECT(result, wallet_transfer(&src_wallet, dest_addr.buf.str, 50, &tx), "Failed to construct TX");
     daemon_mine_n_blocks(&daemon, &src_wallet, LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW + 1); // NOTE: +1 to get TX on chain
 
     int64_t fee                = static_cast<int64_t>(tx.fee);
@@ -2402,7 +2402,7 @@ test_result v11__transfer__check_fee_amount_bulletproofs()
   {
     wallet_refresh(&dest_wallet);
     loki_transaction tx = {};
-    EXPECT(result, wallet_transfer(&dest_wallet, src_addr.buf.c_str, 45, &tx), "Failed to construct TX");
+    EXPECT(result, wallet_transfer(&dest_wallet, src_addr.buf.str, 45, &tx), "Failed to construct TX");
 
     int64_t fee   = static_cast<int64_t>(tx.fee);
     int64_t delta = LOKI_ABS(fee_estimate - fee);

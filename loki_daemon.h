@@ -53,7 +53,7 @@ daemon_snode_status            daemon_print_sn             (daemon_t *daemon, lo
 bool                           daemon_print_sn_key         (daemon_t *daemon, loki_snode_key *key);
 daemon_snode_status            daemon_print_sn_status      (daemon_t *daemon); // return: If the node is known on the network (i.e. registered)
 uint64_t                       daemon_print_sr             (daemon_t *daemon, uint64_t height);
-bool                           daemon_print_tx             (daemon_t *daemon, char const *tx_id, loki_scratch_buf *output);
+bool                           daemon_print_tx             (daemon_t *daemon, char const *tx_id, std::string *output);
 void                           daemon_print_cn             (daemon_t *daemon);
 bool                           daemon_relay_tx             (daemon_t *daemon, char const *tx_id);
 bool                           daemon_ban                  (daemon_t *daemon, loki_buffer<32> const *ip);
@@ -92,9 +92,8 @@ static uint64_t amount_to_staking_portions(uint64_t amount)
 
 void daemon_exit(daemon_t *daemon)
 {
-  itest_write_to_stdin(&daemon->shared_mem, "exit");
-  itest_read_stdout_sink(&daemon->shared_mem, 1); // TODO(doyle): Hack
-  daemon->shared_mem.clean_up();
+  itest_write_to_stdin(&daemon->ipc, "exit");
+  itest_ipc_clean_up(&daemon->ipc);
 }
 
 std::vector<daemon_checkpoint> daemon_print_checkpoints(daemon_t *daemon)
@@ -106,11 +105,11 @@ std::vector<daemon_checkpoint> daemon_print_checkpoints(daemon_t *daemon)
   };
 
   std::vector<daemon_checkpoint> result;
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "print_checkpoints", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, "print_checkpoints", possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return result;
 
-  char const *ptr = output.buf.c_str;
+  char const *ptr = output.buf.c_str();
   for (ptr = str_find(ptr, "Type: "); ptr; ptr = str_find(ptr, "Type: "))
   {
     char const *type_value   = str_skip_to_next_word_inplace(&ptr);
@@ -132,8 +131,8 @@ std::vector<daemon_checkpoint> daemon_print_checkpoints(daemon_t *daemon)
 
 uint64_t daemon_print_height(daemon_t *daemon)
 {
-  itest_read_result output = itest_write_then_read_stdout(&daemon->shared_mem, "print_height");
-  uint64_t result = static_cast<uint64_t>(atoi(output.buf.c_str));
+  itest_read_result output = itest_write_then_read_stdout(&daemon->ipc, "print_height");
+  uint64_t result = static_cast<uint64_t>(atoi(output.buf.c_str()));
   return result;
 }
 
@@ -155,21 +154,21 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   // Expected Format: register_service_node <owner cut> <address> <fraction> [<address> <fraction> [...]]]
   itest_read_result output                     = {};
   char const *register_snode_start_ptr = nullptr;
-  itest_write_to_stdin(&daemon->shared_mem, "prepare_registration");
+  itest_write_to_stdin(&daemon->ipc, "prepare_registration");
   if (params->num_contributors == 1)
   {
     if (params->open_pool)
     {
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "n");
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter operator fee as a percentage of the total staking reward"), owner_fee.c_str);
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"), "n");
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter the loki address for the operator"), owner->addr.buf.c_str);
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"), owner_amount.c_str);
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("You will leave the remaining portion of"), "y");
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Do you confirm the information above is correct?"), "y");
-      output = itest_read_stdout(&daemon->shared_mem);
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "n");
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Enter operator fee as a percentage of the total staking reward"), owner_fee.c_str);
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"), "n");
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Enter the loki address for the operator"), owner->addr.buf.c_str);
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"), owner_amount.c_str);
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("You will leave the remaining portion of"), "y");
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Do you confirm the information above is correct?"), "y");
+      output = itest_read_stdout(&daemon->ipc);
 
-      char const *register_str = str_find(&output.buf, "register_service_node");
+      char const *register_str = str_find(output.buf.c_str(), "register_service_node");
       char const *ptr          = register_str;
       result                  &= (register_str != nullptr);
 
@@ -188,12 +187,12 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     }
     else
     {
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "y");
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter the loki address for the solo staker"), owner->addr.buf.c_str);
-      itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Do you confirm the information above is correct?"), "y");
-      output = itest_read_stdout(&daemon->shared_mem);
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "y");
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Enter the loki address for the solo staker"), owner->addr.buf.c_str);
+      itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Do you confirm the information above is correct?"), "y");
+      output = itest_read_stdout(&daemon->ipc);
 
-      char const *register_str = str_find(&output.buf, "register_service_node");
+      char const *register_str = str_find(output.buf.c_str(), "register_service_node");
       char const *prev         = register_str;
       result                  &= (register_str != nullptr);
 
@@ -211,30 +210,30 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   }
   else
   {
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "n");
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter operator fee as a percentage of the total staking reward"), owner_fee.c_str);
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"), "y");
+    itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Will the operator contribute the entire stake?"), "n");
+    itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Enter operator fee as a percentage of the total staking reward"), owner_fee.c_str);
+    itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Do you want to reserve portions of the stake for other specific contributors?"), "y");
 
     int num_extra_contribs             = params->num_contributors - 1;
     char const *num_extra_contribs_str = (num_extra_contribs == 1) ? "1" : (num_extra_contribs == 2) ? "2" : "3";
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Number of additional contributors"), num_extra_contribs_str);
+    itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Number of additional contributors"), num_extra_contribs_str);
 
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("Enter the loki address for the operator"), owner->addr.buf.c_str);
-    itest_read_until_then_write_stdin(&daemon->shared_mem, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"), owner_amount.c_str);
+    itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("Enter the loki address for the operator"), owner->addr.buf.c_str);
+    itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STR_LIT("How much loki does the operator want to reserve in the stake?"), owner_amount.c_str);
 
     for (int i = 1; i < params->num_contributors; ++i)
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_buffer<32> contributor_amount("%zu", contributor->amount);
-      output = itest_write_then_read_stdout(&daemon->shared_mem, contributor->addr.buf.c_str);
-      itest_write_then_read_stdout(&daemon->shared_mem, contributor_amount.c_str);
+      output = itest_write_then_read_stdout(&daemon->ipc, contributor->addr.buf.c_str);
+      itest_write_then_read_stdout(&daemon->ipc, contributor_amount.c_str);
     }
 
     if (params->open_pool)
-      output = itest_write_then_read_stdout(&daemon->shared_mem, "y"); // You will leave remaining portion for open to contribution etc.
+      output = itest_write_then_read_stdout(&daemon->ipc, "y"); // You will leave remaining portion for open to contribution etc.
 
-    output                   = itest_write_then_read_stdout_until(&daemon->shared_mem, "y", LOKI_STR_LIT("Run this command in the wallet")); // Confirm
-    char const *register_str = str_find(&output.buf, "register_service_node");
+    output                   = itest_write_then_read_stdout_until(&daemon->ipc, "y", LOKI_STR_LIT("Run this command in the wallet")); // Confirm
+    char const *register_str = str_find(output.buf.c_str(), "register_service_node");
     char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
 
@@ -291,11 +290,11 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
     {LOKI_STR_LIT("Service Node Registration State"), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return result;
 
-  char const *ptr                       = output.buf.c_str;
+  char const *ptr                       = output.buf.c_str();
   char const *registration_label        = str_find(ptr, "Service Node Registration State");
   char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
   int num_registered_snodes             = atoi(num_registered_snodes_str);
@@ -310,8 +309,8 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
 
 bool daemon_print_sn_key(daemon_t *daemon, loki_snode_key *key)
 {
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "print_sn_key", LOKI_STR_LIT("Service Node Public Key: "));
-  char const *key_ptr = str_find(output.buf.c_str, ":");
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, "print_sn_key", LOKI_STR_LIT("Service Node Public Key: "));
+  char const *key_ptr = str_find(output.buf.c_str(), ":");
   key_ptr = str_skip_to_next_alphanum(key_ptr);
 
   if (key)
@@ -327,13 +326,13 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 {
 
   daemon_snode_status result = {};
-  itest_read_result output    = itest_write_then_read_stdout(&daemon->shared_mem, "print_sn_status");
+  itest_read_result output    = itest_write_then_read_stdout(&daemon->ipc, "print_sn_status");
 
-  if (str_find(output.buf.c_str, "No service node is currently known on the network"))
+  if (str_find(output.buf.c_str(), "No service node is currently known on the network"))
     return result;
 
   result.known_on_the_network    = true;
-  char const *registration_label = str_find(output.buf.c_str, "Service Node Registration State");
+  char const *registration_label = str_find(output.buf.c_str(), "Service Node Registration State");
   if (!registration_label)
     return result;
 
@@ -381,14 +380,14 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 uint64_t daemon_print_sr(daemon_t *daemon, uint64_t height)
 {
   loki_buffer<32> cmd("print_sr %zu", height);
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("Staking Requirement: "));
-  char const *staking_requirement_str = str_find(output.buf.c_str, ":");
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, LOKI_STR_LIT("Staking Requirement: "));
+  char const *staking_requirement_str = str_find(output.buf.c_str(), ":");
   ++staking_requirement_str;
   uint64_t result = str_parse_loki_amount(staking_requirement_str);
   return result;
 }
 
-bool daemon_print_tx(daemon_t *daemon, char const *tx_id, loki_scratch_buf *output)
+bool daemon_print_tx(daemon_t *daemon, char const *tx_id, std::string *output)
 {
   loki_buffer<256> cmd("print_tx %s +json", tx_id);
   itest_read_possible_value const possible_values[] =
@@ -397,18 +396,18 @@ bool daemon_print_tx(daemon_t *daemon, char const *tx_id, loki_scratch_buf *outp
     {LOKI_STR_LIT("output_unlock_times"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
     return false;
 
-  if (output) *output = read_result.buf;
+  if (output) *output = std::move(read_result.buf);
   return true;
 }
 
 void daemon_print_cn(daemon_t *daemon)
 {
-  itest_write_to_stdin(&daemon->shared_mem, "print_cn");
-  itest_read_stdout_sink(&daemon->shared_mem, 1000/*ms*/);
+  itest_write_to_stdin(&daemon->ipc, "print_cn");
+  itest_read_stdout_sink(&daemon->ipc, 1000/*ms*/);
 }
 
 bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
@@ -420,7 +419,7 @@ bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
     {LOKI_STR_LIT("Transaction successfully relayed"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
     return false;
 
@@ -439,11 +438,11 @@ bool daemon_ban(daemon_t *daemon, loki_buffer<32> const *ip)
     {LOKI_STR_LIT("Error: Invalid IP"), true},
     {LOKI_STR_LIT("blocked"), false},
   };
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
     return false;
 #else
-  itest_write_to_stdin(&daemon->shared_mem, cmd.c_str);
+  itest_write_to_stdin(&daemon->ipc, cmd.c_str);
   os_sleep_ms(100);
 #endif
 
@@ -460,11 +459,11 @@ bool daemon_unban(daemon_t *daemon, loki_buffer<32> const *ip)
     {LOKI_STR_LIT("unblocked"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
     return false;
 #else
-  itest_write_to_stdin(&daemon->shared_mem, cmd.c_str);
+  itest_write_to_stdin(&daemon->ipc, cmd.c_str);
   os_sleep_ms(100);
 #endif
 
@@ -480,7 +479,7 @@ bool daemon_set_log(daemon_t *daemon, int level)
     {LOKI_STR_LIT("Log level is now"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
     return false;
 
@@ -489,7 +488,7 @@ bool daemon_set_log(daemon_t *daemon, int level)
 
 void daemon_relay_votes_and_uptime(daemon_t *daemon)
 {
-  itest_write_then_read_stdout_until(&daemon->shared_mem, "relay_votes_and_uptime", LOKI_STR_LIT("Votes and uptime relayed"));
+  itest_write_then_read_stdout_until(&daemon->ipc, "relay_votes_and_uptime", LOKI_STR_LIT("Votes and uptime relayed"));
 }
 
 daemon_status_t daemon_status(daemon_t *daemon)
@@ -502,21 +501,18 @@ daemon_status_t daemon_status(daemon_t *daemon)
     {LOKI_STR_LIT("Height: "), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, "status", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, "status", possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return {};
 
   daemon_status_t result = {};
-  char const *ptr        = output.buf.c_str;
+  char const *ptr        = output.buf.c_str();
   char const *height_str = str_skip_to_next_digit_inplace(&ptr);
   result.height          = atoi(height_str);
 
-  //                                        V <- ptr is here, ++ptr to move it past the comma
-  ptr = (str_find(ptr, ","));   // <nettype>,
-  ptr = (str_find(++ptr, ",")); // <mining status>,
-  ptr = (str_find(++ptr, ",")); // <hash rate>,
-  ptr = (str_find(++ptr, "v")); // v<hardfork version>
-  ptr++;
+  loki_str_lit literal = LOKI_STR_LIT("net v");
+  ptr                  = (str_find(ptr, "net v")); // net v<hardfork version>
+  ptr += literal.len;
   assert(ptr && char_is_num(ptr[0]));
   result.hf_version = atoi(ptr);
   return result;
@@ -531,11 +527,11 @@ bool daemon_print_block(daemon_t *daemon, uint64_t height, loki_hash64 *block_ha
     {LOKI_STR_LIT("timestamp: "), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
     return false;
 
-  char const *ptr        = read_result.buf.c_str;
+  char const *ptr        = read_result.buf.c_str();
   char const *hash_label = str_find(ptr, "hash: ");
   char const *hash       = str_skip_to_next_word(hash_label);
   *block_hash            = hash;
@@ -572,7 +568,7 @@ void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_block
   for (;;)
   {
       loki_buffer<256> cmd("integration_test debug_mine_n_blocks %s %d", addr->buf.c_str, num_blocks);
-      itest_read_result output = itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+      itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
       if (!possible_values[output.matching_find_strs_index].is_fail_msg)
       {
           break;
@@ -606,25 +602,25 @@ bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desir
 void daemon_toggle_checkpoint_quorum(daemon_t *daemon)
 {
   loki_buffer<256> cmd("integration_test toggle_checkpoint_quorum");
-  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_checkpoint_quorum toggled"));
+  itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, LOKI_STR_LIT("toggle_checkpoint_quorum toggled"));
 }
 
 void daemon_toggle_obligation_quorum(daemon_t *daemon)
 {
   loki_buffer<256> cmd("integration_test toggle_obligation_quorum");
-  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_obligation_quorum toggled"));
+  itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, LOKI_STR_LIT("toggle_obligation_quorum toggled"));
 }
 
 void daemon_toggle_obligation_uptime_proof(daemon_t *daemon)
 {
   loki_buffer<256> cmd("integration_test toggle_obligation_uptime_proof");
-  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_obligation_uptime_proof toggled"));
+  itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, LOKI_STR_LIT("toggle_obligation_uptime_proof toggled"));
 }
 
 void daemon_toggle_obligation_checkpointing(daemon_t *daemon)
 {
   loki_buffer<256> cmd("integration_test toggle_obligation_checkpointing");
-  itest_write_then_read_stdout_until(&daemon->shared_mem, cmd.c_str, LOKI_STR_LIT("toggle_obligation_checkpointing toggled"));
+  itest_write_then_read_stdout_until(&daemon->ipc, cmd.c_str, LOKI_STR_LIT("toggle_obligation_checkpointing toggled"));
 }
 
 #endif // LOKI_DAEMON_IMPLEMENTATION

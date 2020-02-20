@@ -101,20 +101,4 @@ test_result latest__transfer__check_fee_amount_80x_increase();
 //
 test_result v11__transfer__check_fee_amount_bulletproofs();
 
-//
-// V10
-//
-test_result v10__prepare_registration__check_all_solo_stake_forms_valid_registration();
-test_result v10__register_service_node__check_gets_payed_expires_and_returns_funds();
-test_result v10__register_service_node__check_grace_period();
-
-test_result v10__stake__allow_incremental_staking_until_node_active();
-test_result v10__stake__allow_insufficient_stake_w_reserved_contributor();
-test_result v10__stake__disallow_insufficient_stake_w_not_reserved_contributor();
-
-//
-// V09
-//
-test_result v09__transfer__check_fee_amount();
-
 #endif // LOKI_TEST_CASES_H

@@ -42,27 +42,51 @@ struct state_t
   std::atomic<int> free_zmq_port       = 3333;
   std::atomic<int> free_quorumnet_port = 4444;
 };
-
 static state_t global_state;
 
-uint32_t const MSG_MAGIC_BYTES = 0x7428da3f;
-static char *parse_message(char *msg_buf, int msg_buf_len)
+void itest_ipc_clean_up(itest_ipc *ipc)
 {
-  char *ptr = msg_buf;
-  if ((*(uint32_t *)ptr) != MSG_MAGIC_BYTES)
-    return nullptr;
-
-  ptr += sizeof(MSG_MAGIC_BYTES);
-  LOKI_ASSERT(ptr < msg_buf + msg_buf_len);
-  return ptr;
+  close(ipc->read.fd);
+  close(ipc->write.fd);
+  unlink(ipc->read.file.c_str);
+  unlink(ipc->write.file.c_str);
 }
 
-void in_out_shared_mem::clean_up()
+static void itest_ipc_open_pipes(itest_ipc *ipc)
 {
-  sem_unlink(this->stdin_semaphore_name.c_str);
-  sem_unlink(this->stdout_semaphore_name.c_str);
-  sem_unlink(this->stdin_ready_semaphore_name.c_str);
-  sem_unlink(this->stdout_ready_semaphore_name.c_str);
+  assert(ipc->read.file.len > 0);
+  assert(ipc->write.file.len > 0);
+  unlink(ipc->read.file.c_str);
+  unlink(ipc->write.file.c_str);
+
+  if (mknod(ipc->read.file.c_str, S_IFIFO | 0666, 0) == -1)
+  {
+    perror("Failed to initialise read pipe");
+    assert(false);
+  }
+
+  if (mknod(ipc->write.file.c_str, S_IFIFO | 0666, 0) == -1)
+  {
+    perror("Failed to initialise write pipe");
+    assert(false);
+  }
+
+  ipc->write.fd = open(ipc->write.file.c_str, O_WRONLY);
+  if (ipc->write.fd == -1)
+  {
+    perror("Failed to open write pipe");
+    assert(false);
+  }
+}
+
+char const WALLET_IPC_NAME[] = "loki_integration_testing_wallet";
+static itest_ipc itest_ipc_setup(char const *base_name, int id)
+{
+  itest_ipc result = {};
+  result.read.file = loki_buffer<128>("%s%d_stdout", base_name, id);
+  result.write.file = loki_buffer<128>("%s%d_stdin", base_name, id);
+  itest_ipc_open_pipes(&result);
+  return result;
 }
 
 void start_daemon_params::add_sequential_hardforks_until_version(int version)
@@ -102,124 +126,155 @@ void start_daemon_params::load_latest_hardfork_versions()
   this->add_hardfork(13, 6);
 }
 
-void itest_write_to_stdin(in_out_shared_mem *shared_mem, char const *cmd)
+uint32_t const MSG_PACKET_MAGIC = 0x27befd93;
+struct msg_packet
 {
-  int cmd_len   = static_cast<int>(strlen(cmd));
-  char *ptr     = reinterpret_cast<char *>(shared_mem->stdin_mem.Data());
-  int total_len = static_cast<int>(sizeof(MSG_MAGIC_BYTES) + cmd_len);
-  LOKI_ASSERT(total_len < (int)shared_mem->stdin_mem.Size());
+  uint32_t magic = MSG_PACKET_MAGIC;
+  char buf[1024];
+  int  len;
+  bool has_more;
+};
 
-  // Write message to shared memory
-  sem_wait(shared_mem->stdin_ready_semaphore_handle);
+static char const *make_msg_packet(char const *src, int *len, msg_packet *dest)
+{
+  *dest                   = {};
+  int const max_size      = static_cast<int>(sizeof(dest->buf));
+  int const bytes_to_copy = (*len > max_size) ? max_size : *len;
+
+  memcpy(dest->buf, src, bytes_to_copy);
+  dest->len = bytes_to_copy;
+  *len -= bytes_to_copy;
+
+  char const *result = (*len == 0) ? nullptr : src + bytes_to_copy;
+  dest->has_more     = result != nullptr;
+  return result;
+}
+
+void itest_write_to_stdin(itest_ipc *ipc, char const *src)
+{
+  int src_len = static_cast<int>(strlen(src));
+  while (src_len > 0)
   {
-    memcpy(ptr, (char *)&MSG_MAGIC_BYTES, sizeof(MSG_MAGIC_BYTES));
-    ptr += sizeof(MSG_MAGIC_BYTES);
-
-    memcpy(ptr, cmd, cmd_len);
-    ptr += cmd_len;
-    ptr[0] = 0;
+    msg_packet packet = {};
+    src               = make_msg_packet(src, &src_len, &packet);
+    int num_bytes_written = write(ipc->write.fd, static_cast<void *>(&packet), sizeof(packet));
+    if (num_bytes_written == -1)
+    {
+      if (errno == EBADF)
+      {
+        static thread_local bool printed_once = false;
+        if (!printed_once)
+        {
+          perror("Error returned from write(...)");
+          printed_once = true;
+        }
+        return;
+      }
+      else
+      {
+        perror("Error returned from write(...)");
+      }
+    }
   }
-  sem_post(shared_mem->stdin_semaphore_handle);
 }
 
-itest_read_result itest_write_then_read_stdout(in_out_shared_mem *shared_mem, char const *cmd)
+itest_read_result itest_write_then_read_stdout(itest_ipc *ipc, char const *src)
 {
-  itest_write_to_stdin(shared_mem, cmd);
-  itest_read_result result = itest_read_stdout(shared_mem);
+  itest_write_to_stdin(ipc, src);
+  itest_read_result result = itest_read_stdout(ipc);
   return result;
 }
 
-itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int possible_values_len)
+itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, itest_read_possible_value const *possible_values, int possible_values_len)
 {
-  itest_write_to_stdin(shared_mem, cmd);
-  itest_read_result result = itest_read_stdout_until(shared_mem, possible_values, possible_values_len);
+  itest_write_to_stdin(ipc, src);
+  itest_read_result result = itest_read_stdout_until(ipc, possible_values, possible_values_len);
   return result;
 }
 
-itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit find_str)
+itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *cmd, loki_str_lit find_str)
 {
   itest_read_possible_value possible_values[] = { {find_str, false}, };
-  itest_read_result result = itest_write_then_read_stdout_until(shared_mem, cmd, possible_values, 1);
+  itest_read_result result = itest_write_then_read_stdout_until(ipc, cmd, possible_values, 1);
   return result;
 }
 
-itest_read_result itest_read_stdout(in_out_shared_mem *shared_mem)
+itest_read_result itest_read_stdout(itest_ipc *ipc)
 {
-  char *output = nullptr;
-  int output_len = 0;
+  if (ipc->read.fd == 0)
+  {
+    ipc->read.fd = open(ipc->read.file.c_str, O_RDONLY);
+    if (ipc->read.fd == -1)
+    {
+      perror("Failed to open write pipe");
+      assert(false);
+    }
+  }
 
   itest_read_result result = {};
   for (;;)
   {
-    int sem_value = 0;
-    sem_getvalue(shared_mem->stdout_semaphore_handle, &sem_value);
-    sem_wait(shared_mem->stdout_semaphore_handle);
-
-    shared_mem->stdout_mem.Open();
-    output = parse_message(reinterpret_cast<char *>(shared_mem->stdout_mem.Data()), shared_mem->stdout_mem.Size());
-    if (output)
+    msg_packet packet = {};
+    int bytes_read    = read(ipc->read.fd, reinterpret_cast<void *>(&packet), sizeof(packet));
+    if (bytes_read == -1)
     {
-      output_len = strlen(output);
-      if (output_len > 0) break;
+      if (errno == EBADF)
+      {
+        static thread_local bool printed_once = false;
+        if (!printed_once)
+        {
+          perror("Error returned from write(...)");
+          printed_once = true;
+        }
+        return result;
+      }
+      else
+      {
+        perror("Error returned from write(...)");
+      }
     }
 
-    sem_post(shared_mem->stdout_ready_semaphore_handle);
+    if (bytes_read < static_cast<int>(sizeof(packet)))
+    {
+      fprintf(stderr, "Error reading packet from pipe expected=%zu, read=%d, possible that the pipe was cut mid-transmission\n", sizeof(packet), bytes_read);
+      exit(-1);
+    }
+
+    if (packet.magic != MSG_PACKET_MAGIC)
+    {
+      fprintf(stderr, "Packet magic value=%x, does not match expected=%x\n", packet.magic, MSG_PACKET_MAGIC);
+      exit(-1);
+    }
+
+#if 0
+    fprintf(stdout, "---- Read packet, len=%d msg=\"%.*s\"\n", packet.len, packet.len, packet.buf);
+#endif
+    result.buf.append(packet.buf, packet.len);
+    if (!packet.has_more) break;
   }
-
-
-  result.buf.len = output_len;
-  LOKI_ASSERT(result.buf.len <= result.buf.max());
-
-  memcpy(result.buf.data, output, result.buf.len);
-  result.buf.data[result.buf.len] = 0;
-
-  sem_post(shared_mem->stdout_ready_semaphore_handle);
   return result;
 }
 
-itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, char const *find_str)
+itest_read_result itest_read_stdout_until(itest_ipc *ipc, char const *find_str)
 {
   itest_read_possible_value possible_values[] = { {find_str, false}, };
-  itest_read_result result = itest_read_stdout_until(shared_mem, possible_values, 1);
+  itest_read_result result = itest_read_stdout_until(ipc, possible_values, 1);
   return result;
 }
 
-void itest_read_stdout_sink(in_out_shared_mem *shared_mem, int seconds)
+void itest_read_stdout_sink(itest_ipc *pipe, int seconds)
 {
-  int time_remaining = seconds;
-  timespec time = {};
-  if (clock_gettime(CLOCK_REALTIME, &time) == -1)
-    LOKI_ASSERT(false);
-
-  time.tv_sec += time_remaining;
-  for (; time_remaining > 0;)
-  {
-    int sem_value = 0;
-    sem_getvalue(shared_mem->stdout_semaphore_handle, &sem_value);
-    if (sem_timedwait(shared_mem->stdout_semaphore_handle, &time) == -1)
-    {
-      if (errno == ETIMEDOUT)
-        break;
-    }
-
-    timespec time_after = {};
-    if (clock_gettime(CLOCK_REALTIME, &time_after) == -1)
-      LOKI_ASSERT(false);
-
-    time_remaining -= time_after.tv_sec - time.tv_sec;
-    sem_post(shared_mem->stdout_ready_semaphore_handle);
-  }
+  // TODO(doyle): implement
 }
 
-itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len)
+itest_read_result itest_read_stdout_until(itest_ipc *ipc, itest_read_possible_value const *possible_values, int possible_values_len)
 {
   for (;;)
   {
-    itest_read_result result = itest_read_stdout(shared_mem);
-
+    itest_read_result result = itest_read_stdout(ipc);
     LOKI_FOR_EACH(i, possible_values_len)
     {
-      char const *check = result.buf.c_str;
+      char const *check = result.buf.c_str();
       if (str_find(check, possible_values[i].literal.str))
       {
         result.matching_find_strs_index = i;
@@ -229,13 +284,13 @@ itest_read_result itest_read_stdout_until(in_out_shared_mem *shared_mem, itest_r
   }
 }
 
-void itest_read_until_then_write_stdin(in_out_shared_mem *shared_mem, loki_str_lit find_str, char const *cmd)
+void itest_read_until_then_write_stdin(itest_ipc *ipc, loki_str_lit find_str, char const *cmd)
 {
-  itest_read_stdout_until(shared_mem, find_str.str);
-  itest_write_to_stdin(shared_mem, cmd);
+  itest_read_stdout_until(ipc, find_str.str);
+  itest_write_to_stdin(ipc, cmd);
 }
 
-char const DAEMON_SHARED_MEM_NAME[] = "loki_integration_testing_daemon";
+char const DAEMON_IPC_NAME[] = "loki_integration_testing_daemon";
 void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *params, int num_params, char const *terminal_name)
 {
   // TODO(doyle): Not very efficient
@@ -288,8 +343,8 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
         arg_buf.append("--stagnet ");
     }
 
-    loki_buffer<128> name("%s%d", DAEMON_SHARED_MEM_NAME, curr_daemon->id);
-    arg_buf.append("--integration-test-shared-mem-name %s ", name.c_str);
+    loki_buffer<128> name("%s%d", DAEMON_IPC_NAME, curr_daemon->id);
+    arg_buf.append("--integration-test-pipe-name %s ", name.c_str);
 
     for (int other_daemon_index = 0; other_daemon_index < num_daemons; ++other_daemon_index)
     {
@@ -300,8 +355,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
       arg_buf.append("--add-exclusive-node 127.0.0.1:%d ", other_daemon->p2p_port);
     }
 
-    arg_buf.append("%s ",                            param.custom_cmd_line.c_str);
-    itest_reset_shared_memory(&curr_daemon->shared_mem);
+    arg_buf.append("%s ", param.custom_cmd_line.c_str);
     if (curr_daemon->id == 1)
     {
       // continue;
@@ -314,6 +368,7 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     threads.push_back(std::thread([curr_daemon, cmd_buf]()
     {
       curr_daemon->proc_handle = os_launch_process(cmd_buf.data);
+      curr_daemon->ipc = itest_ipc_setup(DAEMON_IPC_NAME, curr_daemon->id);
       daemon_status(curr_daemon);
     }));
   }
@@ -339,21 +394,6 @@ void create_and_start_multi_daemons(daemon_t *daemons, int num_daemons, start_da
   start_daemon(daemons, num_daemons, params, num_params, terminal_name);
 }
 
-char const WALLET_SHARED_MEM_NAME[] = "loki_integration_testing_wallet";
-static in_out_shared_mem setup_shared_mem(char const *base_name, int id)
-{
-  in_out_shared_mem result = {};
-  loki_buffer<128> stdin_name ("%s%d_stdin", base_name, id);
-  loki_buffer<128> stdout_name("%s%d_stdout", base_name, id);
-  result.stdin_mem             = shoom::Shm(stdin_name.c_str, 32768);
-  result.stdout_mem            = shoom::Shm(stdout_name.c_str, 32768);
-  result.stdin_semaphore_name  = loki_buffer<128>("/%s%d_stdin_semaphore", base_name, id);
-  result.stdout_semaphore_name = loki_buffer<128>("/%s%d_stdout_semaphore", base_name, id);
-  result.stdin_ready_semaphore_name  = loki_buffer<128>("/%s%d_stdin_ready_semaphore", base_name, id);
-  result.stdout_ready_semaphore_name = loki_buffer<128>("/%s%d_stdout_ready_semaphore", base_name, id);
-  return result;
-}
-
 wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, char const *terminal_name)
 {
   wallet_t result = {};
@@ -362,7 +402,7 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
 
   loki_scratch_buf arg_buf = {};
   if (result.nettype == loki_nettype::testnet)       arg_buf.append("--testnet ");
-  else if (result.nettype == loki_nettype::fakenet)  arg_buf.append("--fakenet ");
+  else if (result.nettype == loki_nettype::fakenet)  arg_buf.append("--regtest ");
   else if (result.nettype == loki_nettype::stagenet) arg_buf.append("--stagenet ");
 
   arg_buf.append("--generate-new-wallet ./output/wallet_%d ", result.id);
@@ -375,11 +415,8 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
   if (params.daemon)
     arg_buf.append("--daemon-address 127.0.0.1:%d ", params.daemon->rpc_port);
 
-  loki_buffer<128> name("%s%d", WALLET_SHARED_MEM_NAME, result.id);
-  arg_buf.append("--integration-test-shared-mem-name %s ", name.c_str);
-
-  result.shared_mem = setup_shared_mem(WALLET_SHARED_MEM_NAME, result.id);
-  itest_reset_shared_memory(&result.shared_mem);
+  loki_buffer<128> name("%s%d", WALLET_IPC_NAME, result.id);
+  arg_buf.append("--integration-test-pipe-name %s ", name.c_str);
 
 #if 1
   loki_scratch_buf cmd_buf = {};
@@ -387,6 +424,7 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
   else                           cmd_buf = loki_scratch_buf(LOKI_WALLET_CMD_FMT, result.id, terminal_name, arg_buf.data, "");
   result.proc_handle = os_launch_process(cmd_buf.data);
 
+  result.ipc = itest_ipc_setup(WALLET_IPC_NAME, result.id);
   itest_read_possible_value const possible_values[] =
   {
     {LOKI_STR_LIT("Error: refresh failed"), true},
@@ -395,8 +433,8 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
   };
 
   itest_read_possible_value const *proxy_exception_error = possible_values + 1;
-  itest_read_result read_result = itest_read_stdout_until(&result.shared_mem, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  LOKI_ASSERT_MSG(!str_find(read_result.buf.c_str, proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
+  itest_read_result read_result = itest_read_stdout_until(&result.ipc, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  LOKI_ASSERT_MSG(!str_find(read_result.buf.c_str(), proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
 #endif
   return result;
 }
@@ -409,47 +447,7 @@ daemon_t create_daemon()
   result.rpc_port       = global_state.free_rpc_port++;
   result.zmq_rpc_port   = global_state.free_zmq_port++;
   result.quorumnet_port = global_state.free_quorumnet_port++;
-  result.shared_mem     = setup_shared_mem(DAEMON_SHARED_MEM_NAME, result.id);
   return result;
-}
-
-static void reset_semaphore(sem_t *semaphore)
-{
-  int value = 0;
-  for (;;)
-  {
-    sem_getvalue(semaphore, &value);
-    if (value == 0) break;
-    else if (value > 0) sem_wait(semaphore);
-    else if (value < 0) sem_post(semaphore);
-  }
-}
-
-void itest_reset_shared_memory(in_out_shared_mem *shared_mem)
-{
-  shared_mem->stdin_mem.Create (shoom::Flag::create | shoom::Flag::clear_on_create);
-  shared_mem->stdout_mem.Create(shoom::Flag::create | shoom::Flag::clear_on_create);
-  shared_mem->stdout_mem.Open  ();
-
-  shared_mem->clean_up();
-  shared_mem->stdin_semaphore_handle = sem_open(shared_mem->stdin_semaphore_name.c_str, O_CREAT, 0600, 0);
-  if (shared_mem->stdin_semaphore_handle == SEM_FAILED) perror("Failed to initialise stdin semaphore");
-
-  shared_mem->stdout_semaphore_handle = sem_open(shared_mem->stdout_semaphore_name.c_str, O_CREAT, 0600, 0);
-  if (shared_mem->stdout_semaphore_handle == SEM_FAILED) perror("Failed to initialise stdout semaphore");
-
-  shared_mem->stdout_ready_semaphore_handle = sem_open(shared_mem->stdout_ready_semaphore_name.c_str, O_CREAT, 0600, 0);
-  if (shared_mem->stdout_ready_semaphore_handle == SEM_FAILED) perror("Failed to initialise stdout ready semaphore");
-
-  shared_mem->stdin_ready_semaphore_handle = sem_open(shared_mem->stdin_ready_semaphore_name.c_str, O_CREAT, 0600, 0);
-  if (shared_mem->stdin_ready_semaphore_handle == SEM_FAILED) perror("Failed to initialise stdin ready semaphore");
-
-  reset_semaphore(shared_mem->stdin_semaphore_handle);
-  reset_semaphore(shared_mem->stdout_semaphore_handle);
-  reset_semaphore(shared_mem->stdout_ready_semaphore_handle);
-  reset_semaphore(shared_mem->stdin_ready_semaphore_handle);
-  sem_post(shared_mem->stdout_ready_semaphore_handle);
-  sem_post(shared_mem->stdin_ready_semaphore_handle);
 }
 
 #include <iostream>
@@ -788,13 +786,19 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
   global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
   global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
-  global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+
+  // NOTE(doyle): Doesn't work
+  // global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+
   global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+
   global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
   global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
+
   global_work_queue.jobs.push_back(latest__print_locked_stakes__check_no_locked_stakes);
   global_work_queue.jobs.push_back(latest__print_locked_stakes__check_shows_locked_stakes);
+
   global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
   global_work_queue.jobs.push_back(latest__register_service_node__allow_4_stakers);
   global_work_queue.jobs.push_back(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
@@ -802,30 +806,24 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
   global_work_queue.jobs.push_back(latest__register_service_node__check_unlock_time_is_0);
   global_work_queue.jobs.push_back(latest__register_service_node__disallow_register_twice);
+
   global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
   global_work_queue.jobs.push_back(latest__request_stake_unlock__check_unlock_height);
   global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_on_non_existent_node);
   global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_twice);
+
   global_work_queue.jobs.push_back(latest__stake__allow_incremental_stakes_with_1_contributor);
   global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
   global_work_queue.jobs.push_back(latest__stake__check_transfer_doesnt_used_locked_key_images);
   global_work_queue.jobs.push_back(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
   global_work_queue.jobs.push_back(latest__stake__disallow_staking_when_all_amounts_reserved);
   global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
-  global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_80x_increase);
-  global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
 
-  // NOTE: Specific hard fork tests are sort of broken due to removing old hard forking code in the wallet.
-  // global_work_queue.jobs.push_back(v10__prepare_registration__check_all_solo_stake_forms_valid_registration);
-  // global_work_queue.jobs.push_back(v10__register_service_node__check_gets_payed_expires_and_returns_funds);
-  // global_work_queue.jobs.push_back(v10__register_service_node__check_grace_period);
-  // global_work_queue.jobs.push_back(v10__stake__allow_incremental_staking_until_node_active);
-  // global_work_queue.jobs.push_back(v10__stake__allow_insufficient_stake_w_reserved_contributor);
-  // global_work_queue.jobs.push_back(v10__stake__disallow_insufficient_stake_w_not_reserved_contributor);
-  // global_work_queue.jobs.push_back(v09__transfer__check_fee_amount);
+  global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_80x_increase);
+
+  global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
 #else
   // global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
 #endif
 
   std::vector<std::thread> threads;

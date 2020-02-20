@@ -5,16 +5,13 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <string>
 
-#include "external/shoom.h"
 #include "external/stb_sprintf.h"
-
-#include <semaphore.h>
 
 //
 // Primitives
 //
-
 #define LOKI_ASSERT(expr) \
   if (!(expr)) \
   { \
@@ -122,28 +119,22 @@ struct loki_str_lit
 //
 // Integration Test Primitives
 //
-
-struct in_out_shared_mem
+struct itest_ipc_pipe
 {
-  shoom::Shm stdin_mem;
-  shoom::Shm stdout_mem;
+  int              fd;
+  loki_buffer<128> file;
+};
 
-  loki_buffer<128> stdin_semaphore_name;
-  loki_buffer<128> stdout_semaphore_name;
-  loki_buffer<128> stdin_ready_semaphore_name;
-  loki_buffer<128> stdout_ready_semaphore_name;
-  sem_t           *stdin_semaphore_handle;
-  sem_t           *stdout_semaphore_handle;
-  sem_t           *stdin_ready_semaphore_handle;
-  sem_t           *stdout_ready_semaphore_handle;
-
-  void clean_up();
+struct itest_ipc
+{
+  itest_ipc_pipe read;
+  itest_ipc_pipe write;
 };
 
 struct itest_read_result
 {
-  int              matching_find_strs_index;
-  loki_scratch_buf buf;
+  int         matching_find_strs_index;
+  std::string buf;
 };
 
 struct itest_read_possible_value
@@ -154,16 +145,16 @@ struct itest_read_possible_value
 
 const int ITEST_DEFAULT_TIMEOUT_MS = 100;
 const int ITEST_INFINITE_TIMEOUT   = -1;
-void              itest_write_to_stdin              (in_out_shared_mem *shared_mem, char const *cmd);
-itest_read_result itest_write_then_read_stdout      (in_out_shared_mem *shared_mem, char const *cmd);
-itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, loki_str_lit                     find_str);
-itest_read_result itest_write_then_read_stdout_until(in_out_shared_mem *shared_mem, char const *cmd, itest_read_possible_value const *possible_values, int possible_values_len);
-void              itest_read_stdout_sink            (in_out_shared_mem *shared_mem, int seconds);
-itest_read_result itest_read_stdout                 (in_out_shared_mem *shared_mem);
-itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, char const *find_str);
-itest_read_result itest_read_stdout_until           (in_out_shared_mem *shared_mem, itest_read_possible_value const *possible_values, int possible_values_len);
-void              itest_read_until_then_write_stdin (in_out_shared_mem *shared_mem, loki_str_lit find_str, char const *cmd);
-void              itest_reset_shared_memory         (in_out_shared_mem *shared_mem);
+void              itest_ipc_clean_up                (itest_ipc *ipc);
+void              itest_write_to_stdin              (itest_ipc *ipc, char const *src);
+itest_read_result itest_write_then_read_stdout      (itest_ipc *ipc, char const *src);
+itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, loki_str_lit find_str);
+itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, itest_read_possible_value const *possible_values, int possible_values_len);
+void              itest_read_stdout_sink            (itest_ipc *ipc, int seconds);
+itest_read_result itest_read_stdout                 (itest_ipc *ipc);
+itest_read_result itest_read_stdout_until           (itest_ipc *ipc, char const *find_str);
+itest_read_result itest_read_stdout_until           (itest_ipc *ipc, itest_read_possible_value const *possible_values, int possible_values_len);
+void              itest_read_until_then_write_stdin (itest_ipc *ipc, loki_str_lit find_str, char const *src);
 
 //
 // Loki Blockchain Primitives
@@ -246,14 +237,14 @@ enum struct loki_nettype
 //
 struct daemon_t
 {
-  FILE             *proc_handle;
-  int               id;
-  bool              is_mining;
-  int               p2p_port;
-  int               rpc_port;
-  int               zmq_rpc_port;
-  int               quorumnet_port;
-  in_out_shared_mem shared_mem;
+  FILE     *proc_handle;
+  int       id;
+  bool      is_mining;
+  int       p2p_port;
+  int       rpc_port;
+  int       zmq_rpc_port;
+  int       quorumnet_port;
+  itest_ipc ipc;
 };
 
 struct wallet_t
@@ -263,7 +254,7 @@ struct wallet_t
   loki_nettype  nettype;
   uint64_t      balance;
   uint64_t      unlocked_balance;
-  in_out_shared_mem shared_mem;
+  itest_ipc     ipc;
 };
 
 struct start_daemon_params
@@ -272,7 +263,7 @@ struct start_daemon_params
   bool              service_node     = true;
   loki_hardfork     hardforks[16];        // If hardforks are specified, we run in mainnet/fakechain mode
   int               num_hardforks;
-  loki_nettype      nettype          = loki_nettype::testnet;
+  loki_nettype      nettype = loki_nettype::testnet;
   bool              keep_terminal_open;
   loki_buffer<2048> custom_cmd_line;
 

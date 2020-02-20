@@ -88,21 +88,21 @@ bool                 wallet_register_service_node        (wallet_t *wallet, char
 void wallet_set_default_testing_settings(wallet_t *wallet, wallet_params const params)
 { 
   loki_buffer<64> refresh_height("set refresh-from-block-height %zu", params.refresh_from_block_height);
-  itest_write_then_read_stdout_until(&wallet->shared_mem, refresh_height.c_str, LOKI_STR_LIT("Wallet password"));
+  itest_write_then_read_stdout_until(&wallet->ipc, refresh_height.c_str, LOKI_STR_LIT("Wallet password"));
   loki_buffer<64> ask_password  ("set ask-password %d", params.disable_asking_password ? 0 : 1);
-  itest_write_to_stdin(&wallet->shared_mem, ask_password.c_str);
+  itest_write_to_stdin(&wallet->ipc, ask_password.c_str);
 
 
 #if 0 // TODO(doyle): Hack. Can't get this to work reliably, right not the binaries are built to default to these settings
 #if 1
-  itest_write_then_read_stdout_until(&wallet->shared_mem, ask_password.c_str,   LOKI_STR_LIT("Wallet password: "));
+  itest_write_then_read_stdout_until(&wallet->ipc, ask_password.c_str,   LOKI_STR_LIT("Wallet password: "));
   // TODO(doyle): Hack, theres some sort of race condition here, it gets blocked waiting
   os_sleep_ms(128);
-  itest_read_stdout(&wallet->shared_mem);
+  itest_read_stdout(&wallet->ipc);
 
 #else
-  itest_write_then_read_stdout(&wallet->shared_mem, ask_password.c_str);
-  itest_write_then_read_stdout(&wallet->shared_mem, refresh_height.c_str);
+  itest_write_then_read_stdout(&wallet->ipc, ask_password.c_str);
+  itest_write_then_read_stdout(&wallet->ipc, refresh_height.c_str);
 #endif
 #endif
 }
@@ -120,17 +120,19 @@ bool wallet_address(wallet_t *wallet, int index, loki_addr *addr)
     {LOKI_STR_LIT("Untitled address"), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
 
   // Example
   // 1  TRr6hE8JxT1K8TCpQYbaN3Wm3A6MQpG9xQ3ryP7j7sUEgxLhk6b5soijjrhvuK2ZkZRnpeUdnVddzR1u5DYGBY1K2tZRn43zd  (Untitled address)
-  char const *ptr = output.buf.c_str;
+  char const *ptr = output.buf.c_str();
 
   if (addr)
   {
-    char const *start = str_skip_to_next_word_inplace(&ptr);
+    loki_buffer<128> find = loki_buffer<128>("%d  ", index);
+    char const *start     = str_find(ptr, find.c_str);
+    start += find.len;
     char const *end   = str_skip_to_next_whitespace(start);
     int len           = static_cast<int>(end - start);
     LOKI_ASSERT(len > 0);
@@ -144,8 +146,8 @@ bool wallet_address_new(wallet_t *wallet, loki_addr *addr)
 {
   // Example
   // 1  TRr6hE8JxT1K8TCpQYbaN3Wm3A6MQpG9xQ3ryP7j7sUEgxLhk6b5soijjrhvuK2ZkZRnpeUdnVddzR1u5DYGBY1K2tZRn43zd  (Untitled address)
-  itest_read_result output = itest_write_then_read_stdout(&wallet->shared_mem, "address new");
-  char const *ptr          = output.buf.c_str;
+  itest_read_result output = itest_write_then_read_stdout(&wallet->ipc, "address new");
+  char const *ptr          = output.buf.c_str();
   char const *addr_str     = str_skip_to_next_word_inplace(&ptr);
   char const *addr_name    = str_skip_to_next_word_inplace(&ptr);
   assert(str_match(addr_name, "(Untitled address)"));
@@ -157,18 +159,19 @@ uint64_t wallet_balance(wallet_t *wallet, uint64_t *unlocked_balance)
 {
   // Example
   // Balance: 0.000000000, unlocked balance: 0.000000000
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "balance", LOKI_STR_LIT("Balance: "));
-  char const *ptr         = str_skip_whitespace(output.buf.c_str);
-  char const *balance_str = str_skip_to_next_word_inplace(&ptr);
-  uint64_t result         = str_parse_loki_amount(balance_str);
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "balance", LOKI_STR_LIT("Balance: "));
+  char const *ptr           = output.buf.c_str();
+
+  loki_str_lit balance_lit = LOKI_STR_LIT("Balance: ");
+  char const *balance_str  = str_find(ptr, balance_lit.str);
+  balance_str              = str_skip_to_next_digit(balance_str);
+  uint64_t result          = str_parse_loki_amount(balance_str);
 
   if (unlocked_balance)
   {
-    char const *unlocked_balance_label = str_skip_to_next_word_inplace(&ptr);
-    LOKI_ASSERT(str_match(unlocked_balance_label, "unlocked balance: "));
-
-    os_sleep_ms(500);
-    char const *unlocked_balance_str = str_skip_to_next_digit_inplace(&ptr);
+    char const *unlocked_balance_label = str_find(ptr, "unlocked balance: ");
+    LOKI_ASSERT(unlocked_balance_label);
+    char const *unlocked_balance_str = str_skip_to_next_digit(unlocked_balance_label);
     *unlocked_balance                = str_parse_loki_amount(unlocked_balance_str);
   }
 
@@ -177,8 +180,8 @@ uint64_t wallet_balance(wallet_t *wallet, uint64_t *unlocked_balance)
 
 void wallet_exit(wallet_t *wallet)
 {
-  itest_write_to_stdin(&wallet->shared_mem, "exit");
-  wallet->shared_mem.clean_up();
+  itest_write_to_stdin(&wallet->ipc, "exit");
+  itest_ipc_clean_up(&wallet->ipc);
 }
 
 bool wallet_integrated_address(wallet_t *wallet, loki_addr *addr)
@@ -186,9 +189,9 @@ bool wallet_integrated_address(wallet_t *wallet, loki_addr *addr)
   // Example
   // Random payment ID: <d774b8dbac3b1c72>
   // Matching integrated address: TGAv1vAJmWm64Agf5uPZp87FaHsSxGMKbJpF5RTqcoNCGMciaqKcw8bVv4p5XeY9kZ7RnRjVpdrtLMosWHH85Kt1crWcWwZH9YN1FAg7NR2d 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "integrated_address", LOKI_STR_LIT("Matching integrated address"));
-  LOKI_ASSERT_MSG(str_find(output.buf.c_str, "Matching integrated address: "), "Failed to match in: %s", output.buf.c_str);
-  char const *start = str_find(output.buf.c_str, "Matching integrated address:");
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "integrated_address", LOKI_STR_LIT("Matching integrated address"));
+  LOKI_ASSERT_MSG(str_find(output.buf.c_str(), "Matching integrated address: "), "Failed to match in: %s", output.buf.c_str());
+  char const *start = str_find(output.buf.c_str(), "Matching integrated address:");
   start             = str_find(start, ":");
   start             = str_skip_to_next_alphanum(start);
 
@@ -198,14 +201,14 @@ bool wallet_integrated_address(wallet_t *wallet, loki_addr *addr)
 
 bool wallet_payment_id(wallet_t *wallet, loki_payment_id64 *id)
 {
-  itest_read_result output = itest_write_then_read_stdout(&wallet->shared_mem, "payment_id");
+  itest_read_result output = itest_write_then_read_stdout(&wallet->ipc, "payment_id");
   // Example
   // Random payment ID: <73e4d298a578a80187c0894971a53f7a997ff1ca63b709cc9d387df92344f96f>
-  LOKI_ASSERT(str_match(output.buf.c_str, "Random payment ID: "));
-  char const *start = str_find(output.buf.c_str, "<");
+  LOKI_ASSERT(str_match(output.buf.c_str(), "Random payment ID: "));
+  char const *start = str_find(output.buf.c_str(), "<");
   start++;
 
-  id->append("%.*s", output.buf.max(), start);
+  id->append("%.*s", LOKI_MIN(output.buf.size(), sizeof(id->c_str)), start);
   return true;
 }
 
@@ -217,10 +220,10 @@ wallet_locked_stakes wallet_print_locked_stakes(wallet_t *wallet)
     {LOKI_STR_LIT("Unlock Height"), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "print_locked_stakes", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "print_locked_stakes", possible_values, LOKI_ARRAY_COUNT(possible_values));
   wallet_locked_stakes result = {};
 
-  char const *output_ptr = output.buf.c_str;
+  char const *output_ptr = output.buf.c_str();
   while(char const *service_node_str = str_find(output_ptr, "Service Node: ")) // Parse out the locked stakes
   {
     LOKI_ASSERT(result.locked_stakes_len < (int)LOKI_ARRAY_COUNT(result.locked_stakes));
@@ -284,14 +287,14 @@ bool wallet_refresh(wallet_t *wallet)
     {LOKI_STR_LIT("Balance"),               false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "refresh", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "refresh", possible_values, LOKI_ARRAY_COUNT(possible_values));
   return possible_values[output.matching_find_strs_index].is_fail_msg;
 }
 
 bool wallet_set_daemon(wallet_t *wallet, daemon_t const *daemon)
 {
   loki_buffer<64> cmd("set_daemon 127.0.0.1:%d", daemon->rpc_port);
-  itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, LOKI_STR_LIT("Daemon set to"));
+  itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, LOKI_STR_LIT("Daemon set to"));
   return true;
 }
 
@@ -319,19 +322,19 @@ bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, uint
       {LOKI_STR_LIT("Is this okay?"), false},
     };
 
-    itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+    itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
     if (possible_values[output.matching_find_strs_index].is_fail_msg)
       return false;
   }
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
-  if (!str_find(output.buf.c_str, "Transaction successfully submitted, transaction <"))
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
+  if (!str_find(output.buf.c_str(), "Transaction successfully submitted, transaction <"))
     return false;
 
   if (tx_id)
   {
     *tx_id = {};
-    char const *tx_id_start = str_find(output.buf.c_str, "<");
+    char const *tx_id_start = str_find(output.buf.c_str(), "<");
     tx_id_start++;
     tx_id->append("%.*s", tx_id->max(), tx_id_start);
   }
@@ -341,8 +344,8 @@ bool wallet_stake(wallet_t *wallet, loki_snode_key const *service_node_key, uint
 uint64_t wallet_status(wallet_t *wallet)
 {
   // Refreshed N/K, synced, daemon RPC vX.Y
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, "status", LOKI_STR_LIT("Refreshed"));
-  char const *ptr        = output.buf.c_str;
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, "status", LOKI_STR_LIT("Refreshed"));
+  char const *ptr        = output.buf.c_str();
   char const *height_str = str_skip_to_next_digit(ptr);
   uint64_t result        = static_cast<uint64_t>(atoi(height_str));
   return result;
@@ -355,16 +358,15 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   // Transaction 1/1: ...
   // Sweeping 30298.277954908 for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
   loki_buffer<128> cmd("sweep_all %s", dest);
-  itest_write_to_stdin(&wallet->shared_mem, cmd.c_str);
-  itest_read_result output = itest_read_stdout_until(&wallet->shared_mem, "Transaction 1/");
+  itest_write_to_stdin(&wallet->ipc, cmd.c_str);
+  itest_read_result output = itest_read_stdout_until(&wallet->ipc, "Transaction 1/");
 
   // Sending amount
-  char const *tx_divisor   = str_find(output.buf.c_str, "/");
+  char const *tx_divisor   = str_find(output.buf.c_str(), "/");
   char const *num_txs_str  = str_skip_to_next_digit(tx_divisor);
   char const *amount_label = str_find(num_txs_str, "Sweeping ");
   char const *amount_str   = str_skip_to_next_digit(amount_label);
   uint64_t atomic_amount   = str_parse_loki_amount(amount_str);
-  int num_transactions     = (int)atoi(num_txs_str);
 
   itest_read_possible_value const possible_values[] =
   {
@@ -372,16 +374,7 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
     {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
   };
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", possible_values, LOKI_ARRAY_COUNT(possible_values));
-
-  // Example: The below is repeated N times for num transactions
-  // Transaction successfully submitted, transaction <cf6311bc0feb44a85e378d75f5a5e42e676ae6257a48992d0b5773310bf9179d>
-  // You can check its status by using the `show_transfers` command.
-  // [...]
-  LOKI_FOR_EACH(i, (num_transactions - 1))
-  {
-    output = itest_read_stdout_until(&wallet->shared_mem, "You can check its status by using the `show_transfers` command");
-  }
+  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", possible_values, LOKI_ARRAY_COUNT(possible_values));
 
   if (tx)
   {
@@ -396,16 +389,16 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_transaction *tx)
 {
   loki_buffer<256> cmd("transfer %s %zu", dest, amount);
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, LOKI_STR_LIT("Is this okay?"));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, LOKI_STR_LIT("Is this okay?"));
 
   // NOTE: Payment ID deprecated
 #if 0
   // NOTE: No payment ID requested if sending to subaddress
-  bool requested_payment_id = str_find(output.buf.c_str, "No payment id is included with this transaction. Is this okay?");
+  bool requested_payment_id = str_find(output.buf.c_str(), "No payment id is included with this transaction. Is this okay?");
   if (requested_payment_id)
   {
     // Confirm no payment id
-    output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("Is this okay?"));
+    output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("Is this okay?"));
   }
 #endif
 
@@ -416,7 +409,7 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
   // Is this okay?  (Y/Yes/N/No):
 
   // Sanity check sending amount
-  char const *amount_label = str_find(output.buf.c_str, "Sending ");
+  char const *amount_label = str_find(output.buf.c_str(), "Sending ");
   char const *amount_str   = str_skip_to_next_digit(amount_label);
   assert(amount_label);
   uint64_t atomic_amount = str_parse_loki_amount(amount_str);
@@ -429,20 +422,20 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
 
     // Extract fee
     {
-      char const *fee_label = str_find(output.buf.c_str, "The transaction fee is");
-      if (!fee_label) fee_label = str_find(output.buf.c_str, "a total fee of");
+      char const *fee_label = str_find(output.buf.c_str(), "The transaction fee is");
+      if (!fee_label) fee_label = str_find(output.buf.c_str(), "a total fee of");
 
       char const *fee_str   = str_skip_to_next_digit(fee_label);
-      LOKI_ASSERT_MSG(fee_label, "Could not find the fee label in: %s", output.buf.c_str);
+      LOKI_ASSERT_MSG(fee_label, "Could not find the fee label in: %s", output.buf.c_str());
       tx->fee = str_parse_loki_amount(fee_str);
     }
   }
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
+  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("You can check its status by using the `show_transfers` command"));
   if (tx) // Extract TX ID
   {
-    assert(str_find(output.buf.c_str, "Transaction successfully submitted, transaction <"));
-    char const *id_start = str_find(output.buf.c_str, "<");
+    assert(str_find(output.buf.c_str(), "Transaction successfully submitted, transaction <"));
+    char const *id_start = str_find(output.buf.c_str(), "<");
     tx->id.append("%.*s", tx->id.max(), ++id_start);
   }
 
@@ -488,26 +481,24 @@ bool wallet_request_stake_unlock(wallet_t *wallet, loki_snode_key const *snode_k
   };
 
   loki_buffer<256> cmd("request_stake_unlock %s", snode_key->c_str);
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.c_str, possible_values, LOKI_ARRAY_COUNT(possible_values));
 
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
 
   if (unlock_height)
   {
-    char const *expiring_str      = str_find(output.buf.c_str, "You will continue receiving rewards until the service node expires at the estimated height: ");
+    char const *expiring_str      = str_find(output.buf.c_str(), "You will continue receiving rewards until the service node expires at the estimated height: ");
     char const *unlock_height_str = str_skip_to_next_digit(expiring_str);
     *unlock_height = static_cast<uint64_t>(atoi(unlock_height_str));
   }
 
-  itest_read_stdout_until(&wallet->shared_mem, "Is this okay?");
   itest_read_possible_value const possible_values2[] =
   {
     {LOKI_STR_LIT("Error: Reason: "), true},
     {LOKI_STR_LIT("You can check its status by using the `show_transfers` command"), false},
   };
-
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", possible_values2, LOKI_ARRAY_COUNT(possible_values2));
+  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", possible_values2, LOKI_ARRAY_COUNT(possible_values2));
   return !possible_values2[output.matching_find_strs_index].is_fail_msg;
 }
 
@@ -520,13 +511,13 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
     {LOKI_STR_LIT("Error: This service node is already registered"), true},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->shared_mem, registration_cmd, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, registration_cmd, possible_values, LOKI_ARRAY_COUNT(possible_values));
   if (possible_values[output.matching_find_strs_index].is_fail_msg)
     return false;
 
   if (tx)
   {
-    char const *amount_label = str_find(output.buf.c_str, "Staking ");
+    char const *amount_label = str_find(output.buf.c_str(), "Staking ");
     char const *amount_str   = str_skip_to_next_digit(amount_label);
     assert(amount_label);
     uint64_t atomic_amount = str_parse_loki_amount(amount_str);
@@ -534,23 +525,22 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
     tx->atomic_amount = atomic_amount;
     // Extract fee
     {
-      char const *fee_label = str_find(output.buf.c_str, "The transaction fee is");
-      if (!fee_label) fee_label = str_find(output.buf.c_str, "a total fee of");
+      char const *fee_label = str_find(output.buf.c_str(), "The transaction fee is");
+      if (!fee_label) fee_label = str_find(output.buf.c_str(), "a total fee of");
 
       char const *fee_str   = str_skip_to_next_digit(fee_label);
-      LOKI_ASSERT_MSG(fee_label, "Could not find the fee label in: %s", output.buf.c_str);
+      LOKI_ASSERT_MSG(fee_label, "Could not find the fee label in: %s", output.buf.c_str());
       tx->fee = str_parse_loki_amount(fee_str);
     }
   }
 
-  output = itest_write_then_read_stdout_until(&wallet->shared_mem, "y", LOKI_STR_LIT("Transaction successfully submitted, transaction <"));
+  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STR_LIT("Transaction successfully submitted, transaction <"));
   if (tx) // Extract TX ID
   {
-    char const *id_start = str_find(output.buf.c_str, "<");
+    char const *id_start = str_find(output.buf.c_str(), "<");
     tx->id.append("%.*s", tx->id.max(), ++id_start);
   }
 
-  itest_read_stdout_until(&wallet->shared_mem, "Use the print_sn command in the daemon to check the status.");
   return true;
 }
 

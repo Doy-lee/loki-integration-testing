@@ -7,8 +7,6 @@
 #include <assert.h>
 #include <string>
 
-#include "external/stb_sprintf.h"
-
 // -------------------------------------------------------------------------------------------------
 //
 // macros & helpers

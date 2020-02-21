@@ -1,24 +1,22 @@
-#include "loki_integration_tests.h"
-#include "loki_test_cases.h"
+#include <vector>
+#include <atomic>
+#include <string.h>
 
 #define STB_SPRINTF_IMPLEMENTATION
 #include "external/stb_sprintf.h"
 
-#define LOKI_OS_IMPLEMENTATION
-#include "loki_os.h"
+#include "loki_integration_tests.h"
+#include "loki_str.cpp"
 
 #include "loki_daemon.h"
-#include "loki_str.h"
-#include <atomic>
+#include "loki_wallet.h"
 
-#define XTERM_CMD 1
-#if LXTERMINAL_CMD
-char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
-char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
-#elif XTERM_CMD
-char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
-char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
-#endif
+#include "loki_os.cpp"
+#include "loki_daemon.cpp"
+#include "loki_wallet.cpp"
+
+#include "loki_test_cases.h"
+#include "loki_test_cases.cpp"
 
 // -------------------------------------------------------------------------------------------------
 //
@@ -288,6 +286,15 @@ void itest_read_until_then_write_stdin(itest_ipc *ipc, loki_string find_str, cha
 // daemon
 //
 // -------------------------------------------------------------------------------------------------
+#define XTERM_CMD 1
+#if LXTERMINAL_CMD
+char const LOKI_CMD_FMT[]        = "lxterminal -t \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "lxterminal -t \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
+#elif XTERM_CMD
+char const LOKI_CMD_FMT[]        = "xterm -T \"daemon_%d %s\" -e bash -c \"./lokid %s; %s \"";
+char const LOKI_WALLET_CMD_FMT[] = "xterm -T \"wallet_%d %s\" -e bash -c \"./loki-wallet-cli %s; %s \"";
+#endif
+
 struct state_t
 {
   std::atomic<int> num_wallets         = 0;
@@ -797,47 +804,47 @@ int main(int argc, char **argv)
 
   auto start_time = std::chrono::high_resolution_clock::now();
 #if 1
-  global_work_queue.jobs.push_back(latest__checkpointing__deregister_non_participating_peer);
-  global_work_queue.jobs.push_back(latest__checkpointing__new_peer_syncs_checkpoints);
-  global_work_queue.jobs.push_back(latest__checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  global_work_queue.jobs.push_back(checkpointing__deregister_non_participating_peer);
+  global_work_queue.jobs.push_back(checkpointing__new_peer_syncs_checkpoints);
+  global_work_queue.jobs.push_back(checkpointing__private_chain_reorgs_to_checkpoint_chain);
 
   // NOTE(doyle): Doesn't work
-  // global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+  // global_work_queue.jobs.push_back(decommission__recommission_on_uptime_proof);
 
-  global_work_queue.jobs.push_back(latest__deregistration__n_unresponsive_node);
+  global_work_queue.jobs.push_back(deregistration__n_unresponsive_node);
 
-  global_work_queue.jobs.push_back(latest__prepare_registration__check_100_percent_operator_cut_stake);
-  global_work_queue.jobs.push_back(latest__prepare_registration__check_all_solo_stake_forms_valid_registration);
-  global_work_queue.jobs.push_back(latest__prepare_registration__check_solo_stake);
+  global_work_queue.jobs.push_back(prepare_registration__check_100_percent_operator_cut_stake);
+  global_work_queue.jobs.push_back(prepare_registration__check_all_solo_stake_forms_valid_registration);
+  global_work_queue.jobs.push_back(prepare_registration__check_solo_stake);
 
-  global_work_queue.jobs.push_back(latest__print_locked_stakes__check_no_locked_stakes);
-  global_work_queue.jobs.push_back(latest__print_locked_stakes__check_shows_locked_stakes);
+  global_work_queue.jobs.push_back(print_locked_stakes__check_no_locked_stakes);
+  global_work_queue.jobs.push_back(print_locked_stakes__check_shows_locked_stakes);
 
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_43_23_13_21_reserved_contribution);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_4_stakers);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_70_20_and_10_open_for_contribution);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_contribution);
-  global_work_queue.jobs.push_back(latest__register_service_node__allow_87_13_reserved_contribution);
-  global_work_queue.jobs.push_back(latest__register_service_node__check_unlock_time_is_0);
-  global_work_queue.jobs.push_back(latest__register_service_node__disallow_register_twice);
+  global_work_queue.jobs.push_back(register_service_node__allow_43_23_13_21_reserved_contribution);
+  global_work_queue.jobs.push_back(register_service_node__allow_4_stakers);
+  global_work_queue.jobs.push_back(register_service_node__allow_70_20_and_10_open_for_contribution);
+  global_work_queue.jobs.push_back(register_service_node__allow_87_13_contribution);
+  global_work_queue.jobs.push_back(register_service_node__allow_87_13_reserved_contribution);
+  global_work_queue.jobs.push_back(register_service_node__check_unlock_time_is_0);
+  global_work_queue.jobs.push_back(register_service_node__disallow_register_twice);
 
-  global_work_queue.jobs.push_back(latest__request_stake_unlock__check_pooled_stake_unlocked);
-  global_work_queue.jobs.push_back(latest__request_stake_unlock__check_unlock_height);
-  global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_on_non_existent_node);
-  global_work_queue.jobs.push_back(latest__request_stake_unlock__disallow_request_twice);
+  global_work_queue.jobs.push_back(request_stake_unlock__check_pooled_stake_unlocked);
+  global_work_queue.jobs.push_back(request_stake_unlock__check_unlock_height);
+  global_work_queue.jobs.push_back(request_stake_unlock__disallow_request_on_non_existent_node);
+  global_work_queue.jobs.push_back(request_stake_unlock__disallow_request_twice);
 
-  global_work_queue.jobs.push_back(latest__stake__allow_incremental_stakes_with_1_contributor);
-  global_work_queue.jobs.push_back(latest__stake__check_incremental_stakes_decreasing_min_contribution);
-  global_work_queue.jobs.push_back(latest__stake__check_transfer_doesnt_used_locked_key_images);
-  global_work_queue.jobs.push_back(latest__stake__disallow_staking_less_than_minimum_in_pooled_node);
-  global_work_queue.jobs.push_back(latest__stake__disallow_staking_when_all_amounts_reserved);
-  global_work_queue.jobs.push_back(latest__stake__disallow_to_non_registered_node);
+  global_work_queue.jobs.push_back(stake__allow_incremental_stakes_with_1_contributor);
+  global_work_queue.jobs.push_back(stake__check_incremental_stakes_decreasing_min_contribution);
+  global_work_queue.jobs.push_back(stake__check_transfer_doesnt_used_locked_key_images);
+  global_work_queue.jobs.push_back(stake__disallow_staking_less_than_minimum_in_pooled_node);
+  global_work_queue.jobs.push_back(stake__disallow_staking_when_all_amounts_reserved);
+  global_work_queue.jobs.push_back(stake__disallow_to_non_registered_node);
 
-  global_work_queue.jobs.push_back(latest__transfer__check_fee_amount_80x_increase);
+  global_work_queue.jobs.push_back(transfer__check_fee_amount_80x_increase);
 
   global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
 #else
-  // global_work_queue.jobs.push_back(latest__decommission__recommission_on_uptime_proof);
+  // global_work_queue.jobs.push_back(decommission__recommission_on_uptime_proof);
 #endif
 
   std::vector<std::thread> threads;

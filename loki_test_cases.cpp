@@ -1,14 +1,3 @@
-#include "loki_test_cases.h"
-
-#define LOKI_WALLET_IMPLEMENTATION
-#include "loki_wallet.h"
-
-#define LOKI_STR_IMPLEMENTATION
-#include "loki_str.h"
-
-#define LOKI_DAEMON_IMPLEMENTATION
-#include "loki_daemon.h"
-
 #define EXPECT_STR(test_result_var, src, EXPECT_str, fmt, ...) \
 if (!str_match(src, EXPECT_str)) \
 { \
@@ -33,7 +22,7 @@ if (!(expr)) \
 #define LOKI_ANSI_COLOR_CYAN    "\x1b[36m"
 #define LOKI_ANSI_COLOR_RESET   "\x1b[0m"
 
-char const *LOKI_TESTNET_ADDR[] = // Some fake addresses for use in tests
+FILE_SCOPE char const *LOKI_TESTNET_ADDR[] = // Some fake addresses for use in tests
 {
   "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD",
   "T6TZgnpJ2uaC1cqS4E6M6u7QmGA79q2G19ToBHnqWHxMMDocNTiw2phg52XjkAmEZH9V5xQUsaR3cbcTnELE1vXP2YkhEqXad",
@@ -41,7 +30,7 @@ char const *LOKI_TESTNET_ADDR[] = // Some fake addresses for use in tests
   "T6TbA1iusFDiBwuuRvarSi91o7uVxbqwJirFJiWJvmQ1KnUHoiyXCDh8rBzegzK3oVTECSKLvQrfyAHCbJfhbZui27UufvZJt",
 };
 
-char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
+FILE_SCOPE char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
 {
   "LAK9DLQVSLtinNdoRMU9DqQtjMSPAUhz7Cc74dvXBw6j6S4foJDhbUXhTNmA5pLj6cEuV4AG4bVbeD4v3RpG69geLayrya9",
   "LEJfPyQvT5oYeHJWghhiquV8c5svGkeDBBtRJUMzAqcyCnuNtEf7kDKJgK4C3DsQYdFUR4WB6gSa2YsZMBhdEE2r6wTTijh",
@@ -49,7 +38,7 @@ char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
   "LEGbch6JYiUjX3ebUvVZZNiU2wNT3SBD4DZgGH9xN56VGq4obkGsKEF8zGLBXiNnFv5dzQX1Yg1Yx99YSgg4GDaZKw6zxcA",
 };
 
-static bool helper_compare_checkpoints(daemon_t *daemons, int num_daemons)
+FILE_SCOPE bool helper_compare_checkpoints(daemon_t *daemons, int num_daemons)
 {
   bool result = true;
   if (num_daemons <= 1)
@@ -348,51 +337,26 @@ test_result foo()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
+  return result;
+}
 
-#if 0
-  loki_addr wallet_addr = {};
-  daemon_t daemon       = {};
-  wallet_t wallet       = {};
-  helper_setup_blockchain_with_n_blocks(&result, &daemon, &wallet, &wallet_addr, 1);
-  LOKI_DEFER { daemon_exit(&daemon); wallet_exit(&wallet); };
+test_result buy_lns_mapping()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
 
-  daemon_mine_until_height(&daemon, &wallet_addr, 100);
-
-  for (;;)
+  helper_blockchain_environment environment = {};
   {
-    daemon_status(&daemon);
-    os_sleep_ms(2000);
+    start_daemon_params daemon_params = {};
+    daemon_params.load_latest_hardfork_versions();
+    helper_setup_blockchain(&environment, &result, daemon_params, 0/*num_service_nodes*/, 0/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
   }
-#else
-  const int NUM_DAEMONS = 20;
-  daemon_t daemons[NUM_DAEMONS] = {};
-  start_daemon_params daemon_params[NUM_DAEMONS]  = {};
-  {
-    LOKI_FOR_EACH(i, NUM_DAEMONS)
-      daemon_params[i].load_latest_hardfork_versions();
-    create_and_start_multi_daemons(daemons, NUM_DAEMONS, daemon_params, NUM_DAEMONS, result.name.str);
-  }
-
-  loki_addr addr = {};
-  addr.set_normal_addr(LOKI_MAINNET_ADDR[0]);
-
-  for (;;)
-  {
-    daemon_mine_n_blocks(daemons + 0, &addr, 1);
-    LOKI_FOR_EACH(daemon_index, NUM_DAEMONS)
-    {
-      daemon_t *daemon = daemons + daemon_index;
-      daemon_relay_votes_and_uptime(daemon);
-    }
-    helper_block_until_blockchains_are_synced(daemons, NUM_DAEMONS);
-  }
-#endif
 
 
   return result;
 }
 
-test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
+test_result checkpointing__private_chain_reorgs_to_checkpoint_chain()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -402,7 +366,7 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  daemon_params.keep_terminal_open = false;
+
   helper_blockchain_environment environment = {};
   EXPECT(result,
          helper_setup_blockchain(&environment,
@@ -500,7 +464,7 @@ test_result latest__checkpointing__private_chain_reorgs_to_checkpoint_chain()
   return result;
 }
 
-test_result latest__checkpointing__new_peer_syncs_checkpoints()
+test_result checkpointing__new_peer_syncs_checkpoints()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -594,7 +558,7 @@ test_result latest__checkpointing__new_peer_syncs_checkpoints()
   return result;
 }
 
-test_result latest__checkpointing__deregister_non_participating_peer()
+test_result checkpointing__deregister_non_participating_peer()
 {
   // NOTE: Setup environment
   test_result result = {};
@@ -666,7 +630,7 @@ test_result latest__checkpointing__deregister_non_participating_peer()
   return result;
 }
 
-test_result latest__decommission__recommission_on_uptime_proof()
+test_result decommission__recommission_on_uptime_proof()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -750,7 +714,7 @@ test_result latest__decommission__recommission_on_uptime_proof()
   return result;
 }
 
-test_result latest__deregistration__n_unresponsive_node()
+test_result deregistration__n_unresponsive_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -900,7 +864,7 @@ test_result latest__deregistration__n_unresponsive_node()
   return result;
 }
 
-test_result latest__prepare_registration__check_all_solo_stake_forms_valid_registration()
+test_result prepare_registration__check_all_solo_stake_forms_valid_registration()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -949,7 +913,7 @@ test_result latest__prepare_registration__check_all_solo_stake_forms_valid_regis
   return result;
 }
 
-test_result latest__prepare_registration__check_solo_stake()
+test_result prepare_registration__check_solo_stake()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -996,7 +960,7 @@ test_result latest__prepare_registration__check_solo_stake()
   return result;
 }
 
-test_result latest__prepare_registration__check_100_percent_operator_cut_stake()
+test_result prepare_registration__check_100_percent_operator_cut_stake()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1052,7 +1016,7 @@ test_result latest__prepare_registration__check_100_percent_operator_cut_stake()
   return result;
 }
 
-test_result latest__print_locked_stakes__check_no_locked_stakes()
+test_result print_locked_stakes__check_no_locked_stakes()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1079,7 +1043,7 @@ test_result latest__print_locked_stakes__check_no_locked_stakes()
   return result;
 }
 
-test_result latest__print_locked_stakes__check_shows_locked_stakes()
+test_result print_locked_stakes__check_shows_locked_stakes()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1148,7 +1112,7 @@ test_result latest__print_locked_stakes__check_shows_locked_stakes()
   return result;
 }
 
-test_result latest__register_service_node__allow_4_stakers()
+test_result register_service_node__allow_4_stakers()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1216,7 +1180,7 @@ test_result latest__register_service_node__allow_4_stakers()
   return result;
 }
 
-test_result latest__register_service_node__allow_70_20_and_10_open_for_contribution()
+test_result register_service_node__allow_70_20_and_10_open_for_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1285,7 +1249,7 @@ test_result latest__register_service_node__allow_70_20_and_10_open_for_contribut
   return result;
 }
 
-test_result latest__register_service_node__allow_43_23_13_21_reserved_contribution()
+test_result register_service_node__allow_43_23_13_21_reserved_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1404,7 +1368,7 @@ test_result latest__register_service_node__allow_43_23_13_21_reserved_contributi
   return result;
 }
 
-test_result latest__register_service_node__allow_87_13_reserved_contribution()
+test_result register_service_node__allow_87_13_reserved_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1498,7 +1462,7 @@ test_result latest__register_service_node__allow_87_13_reserved_contribution()
   return result;
 }
 
-test_result latest__register_service_node__allow_87_13_contribution()
+test_result register_service_node__allow_87_13_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1589,7 +1553,7 @@ test_result latest__register_service_node__allow_87_13_contribution()
   return result;
 }
 
-test_result latest__register_service_node__disallow_register_twice()
+test_result register_service_node__disallow_register_twice()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1635,7 +1599,7 @@ test_result latest__register_service_node__disallow_register_twice()
   return result;
 }
 
-test_result latest__register_service_node__check_unlock_time_is_0()
+test_result register_service_node__check_unlock_time_is_0()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1679,7 +1643,7 @@ test_result latest__register_service_node__check_unlock_time_is_0()
   return result;
 }
 
-test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
+test_result request_stake_unlock__check_pooled_stake_unlocked()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1812,7 +1776,7 @@ test_result latest__request_stake_unlock__check_pooled_stake_unlocked()
   return result;
 }
 
-test_result latest__request_stake_unlock__check_unlock_height()
+test_result request_stake_unlock__check_unlock_height()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1867,7 +1831,7 @@ test_result latest__request_stake_unlock__check_unlock_height()
   return result;
 }
 
-test_result latest__request_stake_unlock__disallow_request_on_non_existent_node()
+test_result request_stake_unlock__disallow_request_on_non_existent_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1894,7 +1858,7 @@ test_result latest__request_stake_unlock__disallow_request_on_non_existent_node(
   return result;
 }
 
-test_result latest__request_stake_unlock__disallow_request_twice()
+test_result request_stake_unlock__disallow_request_twice()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1944,7 +1908,7 @@ test_result latest__request_stake_unlock__disallow_request_twice()
   return result;
 }
 
-test_result latest__stake__allow_incremental_stakes_with_1_contributor()
+test_result stake__allow_incremental_stakes_with_1_contributor()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1992,7 +1956,7 @@ test_result latest__stake__allow_incremental_stakes_with_1_contributor()
   return result;
 }
 
-test_result latest__stake__check_incremental_stakes_decreasing_min_contribution()
+test_result stake__check_incremental_stakes_decreasing_min_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2147,7 +2111,7 @@ test_result latest__stake__check_incremental_stakes_decreasing_min_contribution(
   return result;
 }
 
-test_result latest__stake__check_transfer_doesnt_used_locked_key_images()
+test_result stake__check_transfer_doesnt_used_locked_key_images()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2164,7 +2128,7 @@ test_result latest__stake__check_transfer_doesnt_used_locked_key_images()
   return result;
 }
 
-test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node()
+test_result stake__disallow_staking_less_than_minimum_in_pooled_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2234,7 +2198,7 @@ test_result latest__stake__disallow_staking_less_than_minimum_in_pooled_node()
   return result;
 }
 
-test_result latest__stake__disallow_staking_when_all_amounts_reserved()
+test_result stake__disallow_staking_when_all_amounts_reserved()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2292,7 +2256,7 @@ test_result latest__stake__disallow_staking_when_all_amounts_reserved()
   return result;
 }
 
-test_result latest__stake__disallow_to_non_registered_node()
+test_result stake__disallow_to_non_registered_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2310,7 +2274,7 @@ test_result latest__stake__disallow_to_non_registered_node()
   return result;
 }
 
-test_result latest__transfer__check_fee_amount_80x_increase()
+test_result transfer__check_fee_amount_80x_increase()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);

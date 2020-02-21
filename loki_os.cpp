@@ -1,6 +1,8 @@
-#ifndef LOKI_OS_H
-#define LOKI_OS_H
-
+// -------------------------------------------------------------------------------------------------
+//
+// header
+//
+// -------------------------------------------------------------------------------------------------
 void  os_kill_process  (FILE *process); // TODO(loki): This doesn't work. But we don't use it right now, so thats ok
 FILE *os_launch_process(char const *cmd_line);
 void  os_sleep_s       (int seconds);
@@ -19,7 +21,11 @@ bool  os_file_dir_make  (char const *path);
 bool  os_file_exists    (char const *path, os_file_info *info = nullptr);
 bool  os_write_file     (char const *path, char const *buf, int buf_len);
 
-#if defined(LOKI_OS_IMPLEMENTATION)
+// -------------------------------------------------------------------------------------------------
+//
+// implementation
+//
+// -------------------------------------------------------------------------------------------------
 #if defined(_WIN32)
   #define WIN32_LEAN_AND_MEAN
   #define NOMINMAX
@@ -164,6 +170,3 @@ bool os_write_file(char const *path, char const *buf, int buf_len)
   fclose(file);
   return true;
 }
-
-#endif // LOKI_OS_IMPLEMENTATION
-#endif // LOKI_OS_H

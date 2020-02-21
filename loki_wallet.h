@@ -43,7 +43,7 @@ struct wallet_locked_stakes
 
 // TODO(doyle): This function should probably run by default since you almost always want it
 void                 wallet_set_default_testing_settings (wallet_t *wallet, wallet_params const params = {});
-bool                 wallet_address                      (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
+itest_ipc_result     wallet_address                      (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
 bool                 wallet_address_new                  (wallet_t *wallet, loki_addr *addr);
 uint64_t             wallet_balance                      (wallet_t *wallet, uint64_t *unlocked_balance);
 void                 wallet_exit                         (wallet_t *wallet);
@@ -66,5 +66,5 @@ uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, daem
 // TODO(doyle): This should return the transaction
 bool                 wallet_request_stake_unlock         (wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height = nullptr);
 bool                 wallet_register_service_node        (wallet_t *wallet, char const *registration_cmd, loki_transaction *tx = nullptr);
-bool                 wallet_buy_lns_mapping              (wallet_t *wallet, loki_string *owner, loki_string type, loki_string name, loki_string value, loki_transaction *tx = nullptr);
+itest_ipc_result     wallet_buy_lns_mapping              (wallet_t *wallet, loki_string *owner, loki_string name, loki_string value, loki_transaction *tx = nullptr);
 #endif

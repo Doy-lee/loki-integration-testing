@@ -110,6 +110,8 @@ void start_daemon_params::load_latest_hardfork_versions()
   this->add_hardfork(11, 4);
   this->add_hardfork(12, 5);
   this->add_hardfork(13, 6);
+  this->add_hardfork(14, 7);
+  this->add_hardfork(15, 8);
 }
 
 uint32_t const MSG_PACKET_MAGIC = 0x27befd93;
@@ -141,8 +143,9 @@ static char const *make_msg_packet(char const *src, int *len, msg_packet *dest)
 // itest
 //
 // -------------------------------------------------------------------------------------------------
-void itest_write_to_stdin(itest_ipc *ipc, char const *src)
+itest_ipc_result itest_write_to_stdin(itest_ipc *ipc, char const *src)
 {
+  itest_ipc_result result = {};
   int src_len = static_cast<int>(strlen(src));
   while (src_len > 0)
   {
@@ -151,46 +154,37 @@ void itest_write_to_stdin(itest_ipc *ipc, char const *src)
     int num_bytes_written = write(ipc->write.fd, static_cast<void *>(&packet), sizeof(packet));
     if (num_bytes_written == -1)
     {
-      if (errno == EBADF)
-      {
-        static thread_local bool printed_once = false;
-        if (!printed_once)
-        {
-          perror("Error returned from write(...)");
-          printed_once = true;
-        }
-        return;
-      }
-      else
-      {
-        perror("Error returned from write(...)");
-      }
+      result.failed      = true;
+      result.fail_string = loki_fixed_string<1024>("Error returned from write(...): %s", strerror(errno));
+      return result;
     }
   }
-}
 
-itest_read_result itest_write_then_read_stdout(itest_ipc *ipc, char const *src)
-{
-  itest_write_to_stdin(ipc, src);
-  itest_read_result result = itest_read_stdout(ipc);
   return result;
 }
 
-itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, itest_read_possible_value const *possible_values, int possible_values_len)
+itest_ipc_result itest_write_then_read_stdout(itest_ipc *ipc, char const *src)
 {
-  itest_write_to_stdin(ipc, src);
-  itest_read_result result = itest_read_stdout_until(ipc, possible_values, possible_values_len);
+  itest_ipc_result result = itest_write_to_stdin(ipc, src);
+  if (result) result = itest_read_stdout(ipc);
   return result;
 }
 
-itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *cmd, loki_string find_str)
+itest_ipc_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, itest_read_possible_value const *possible_values, int possible_values_len)
+{
+  itest_ipc_result result = itest_write_to_stdin(ipc, src);
+  if (result) result = itest_read_stdout_until(ipc, possible_values, possible_values_len);
+  return result;
+}
+
+itest_ipc_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *cmd, loki_string find_str)
 {
   itest_read_possible_value possible_values[] = { {find_str, false}, };
-  itest_read_result result = itest_write_then_read_stdout_until(ipc, cmd, possible_values, 1);
+  itest_ipc_result result = itest_write_then_read_stdout_until(ipc, cmd, possible_values, 1);
   return result;
 }
 
-itest_read_result itest_read_stdout(itest_ipc *ipc)
+itest_ipc_result itest_read_stdout(itest_ipc *ipc)
 {
   if (ipc->read.fd == 0)
   {
@@ -202,54 +196,47 @@ itest_read_result itest_read_stdout(itest_ipc *ipc)
     }
   }
 
-  itest_read_result result = {};
+  itest_ipc_result result = {};
   for (;;)
   {
     msg_packet packet = {};
     int bytes_read    = read(ipc->read.fd, reinterpret_cast<void *>(&packet), sizeof(packet));
     if (bytes_read == -1)
     {
-      if (errno == EBADF)
-      {
-        static thread_local bool printed_once = false;
-        if (!printed_once)
-        {
-          perror("Error returned from write(...)");
-          printed_once = true;
-        }
-        return result;
-      }
-      else
-      {
-        perror("Error returned from write(...)");
-      }
+      result.failed      = true;
+      result.fail_string = loki_fixed_string<1024>("Error returned from read(...): %s", strerror(errno));
+      return result;
     }
 
     if (bytes_read < static_cast<int>(sizeof(packet)))
     {
-      fprintf(stderr, "Error reading packet from pipe expected=%zu, read=%d, possible that the pipe was cut mid-transmission\n", sizeof(packet), bytes_read);
-      exit(-1);
+      result.failed      = true;
+      result.fail_string = loki_fixed_string<1024>("Error reading packet from pipe expected=%zu, read=%d, possible that the pipe was cut mid-transmission\n", sizeof(packet), bytes_read);
+      return result;
     }
 
     if (packet.magic != MSG_PACKET_MAGIC)
     {
-      fprintf(stderr, "Packet magic value=%x, does not match expected=%x\n", packet.magic, MSG_PACKET_MAGIC);
-      exit(-1);
+      result.failed      = true;
+      result.fail_string = loki_fixed_string<1024>("Packet magic value=%x, does not match expected=%x\n", packet.magic, MSG_PACKET_MAGIC);
+      return result;
     }
 
 #if 0
     fprintf(stdout, "---- Read packet, len=%d msg=\"%.*s\"\n", packet.len, packet.len, packet.buf);
 #endif
-    result.buf.append(packet.buf, packet.len);
+    result.output.append(packet.buf, packet.len);
     if (!packet.has_more) break;
   }
+
+  if (result.output.size() && result.output.back() == '\n') result.output.pop_back();
   return result;
 }
 
-itest_read_result itest_read_stdout_until(itest_ipc *ipc, char const *find_str)
+itest_ipc_result itest_read_stdout_until(itest_ipc *ipc, char const *find_str)
 {
   itest_read_possible_value possible_values[] = { {find_str, false}, };
-  itest_read_result result = itest_read_stdout_until(ipc, possible_values, 1);
+  itest_ipc_result result = itest_read_stdout_until(ipc, possible_values, 1);
   return result;
 }
 
@@ -258,17 +245,21 @@ void itest_read_stdout_sink(itest_ipc *pipe, int seconds)
   // TODO(doyle): implement
 }
 
-itest_read_result itest_read_stdout_until(itest_ipc *ipc, itest_read_possible_value const *possible_values, int possible_values_len)
+itest_ipc_result itest_read_stdout_until(itest_ipc *ipc, itest_read_possible_value const *possible_values, int possible_values_len)
 {
   for (;;)
   {
-    itest_read_result result = itest_read_stdout(ipc);
+    itest_ipc_result result = itest_read_stdout(ipc);
     LOKI_FOR_EACH(i, possible_values_len)
     {
-      char const *check = result.buf.c_str();
+      char const *check = result.output.c_str();
       if (str_find(check, possible_values[i].literal.str))
       {
-        result.matching_find_strs_index = i;
+        if (possible_values[i].is_fail_msg)
+        {
+          result.fail_string = loki_fixed_string<1024>("%s", possible_values[i].literal);
+          result.failed      = true;
+        }
         return result;
       }
     }
@@ -453,16 +444,16 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
   result.proc_handle = os_launch_process(cmd_buf.str);
 
   result.ipc = itest_ipc_setup(WALLET_IPC_NAME, result.id);
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Error: refresh failed"), true},
     {LOKI_STRING("Error: refresh failed: unexpected error: proxy exception in refresh thread"), true},
     {LOKI_STRING("Balance"),               false},
   };
 
-  itest_read_possible_value const *proxy_exception_error = possible_values + 1;
-  itest_read_result read_result = itest_read_stdout_until(&result.ipc, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  LOKI_ASSERT_MSG(!str_find(read_result.buf.c_str(), proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
+  LOCAL_PERSIST itest_read_possible_value const *proxy_exception_error = possible_values + 1;
+  itest_ipc_result ipc_result = itest_read_stdout_until(&result.ipc, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  LOKI_ASSERT_MSG(!str_find(ipc_result.output.c_str(), proxy_exception_error->literal.str), "This shows up when you launch the daemon in the incorrect nettype and the wallet tries to forcefully refresh from it");
 #endif
   return result;
 }
@@ -803,6 +794,8 @@ int main(int argc, char **argv)
 
   auto start_time = std::chrono::high_resolution_clock::now();
 #if 0
+  global_work_queue.jobs.push_back(buy_lns_mapping__session);
+
   global_work_queue.jobs.push_back(checkpointing__deregister_non_participating_peer);
   global_work_queue.jobs.push_back(checkpointing__new_peer_syncs_checkpoints);
   global_work_queue.jobs.push_back(checkpointing__private_chain_reorgs_to_checkpoint_chain);
@@ -843,8 +836,7 @@ int main(int argc, char **argv)
 
   global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
 #else
-  // global_work_queue.jobs.push_back(decommission__recommission_on_uptime_proof);
-  global_work_queue.jobs.push_back(wallet__buy_lns_mapping__session);
+  global_work_queue.jobs.push_back(buy_lns_mapping__session);
 #endif
 
   std::vector<std::thread> threads;

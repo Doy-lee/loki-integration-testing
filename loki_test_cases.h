@@ -34,8 +34,5 @@ struct helper_blockchain_environment
 
 // NOTE: The minimum amount such that spending funds is reliable and doesn't
 // error out with insufficient outputs to select from.
-// NOTE: This used to be much lower, like 100, but after the output selection
-// algorithm changed, the fake outputs lineup commit this seems to be a lot
-// stricter now
-const int MIN_BLOCKS_IN_BLOCKCHAIN = 100;
+const int MIN_BLOCKS_IN_BLOCKCHAIN = 50;
 #endif // LOKI_TEST_CASES_H

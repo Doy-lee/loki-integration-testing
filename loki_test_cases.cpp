@@ -1,16 +1,35 @@
-#define EXPECT_STR(test_result_var, src, EXPECT_str, fmt, ...) \
-if (!str_match(src, EXPECT_str)) \
-{ \
-  test_result_var.failed   = true; \
-  test_result_var.fail_msg = loki_fixed_string<>("[%s != %s] " fmt, src, EXPECT_str, ## __VA_ARGS__); \
-  return test_result_var; \
-}
+#define EXPECT_STR(test_result_var, src, EXPECT_str, fmt, ...)                                                         \
+  if (!str_match(src, EXPECT_str))                                                                                     \
+  {                                                                                                                    \
+    test_result_var.failed   = true;                                                                                   \
+    test_result_var.fail_msg = loki_fixed_string<>("%s:%d [%s != %s] " fmt, __FILE__, __LINE__, src, EXPECT_str, ##__VA_ARGS__);    \
+    return test_result_var;                                                                                            \
+  }
+
+#define EXPECT_IPC_RESULT(test_result_var, ipc_result)                                                                 \
+  if (!ipc_result)                                                                                                     \
+  {                                                                                                                    \
+    test_result_var.failed   = true;                                                                                   \
+    test_result_var.fail_msg = loki_fixed_string<>(                                                                    \
+        "%s:%d [" #ipc_result "] The last received output was: %.*s", __FILE__, __LINE__, ipc_result.output.size(), ipc_result.output.data());   \
+    return test_result_var;                                                                                            \
+  }
+
+#define EXPECT_IPC_RESULT_MSG(test_result_var, ipc_result, fmt, ...)                                                   \
+  if (!ipc_result)                                                                                                     \
+  {                                                                                                                    \
+    test_result_var.failed   = true;                                                                                   \
+    test_result_var.fail_msg = loki_fixed_string<>("%s:%d [" #ipc_result "] " fmt, __FILE__, __LINE__, ##__VA_ARGS__);                           \
+    test_result_var.fail_msg.append(                                                                                   \
+        "\n\tThe last received output was: %.*s", ipc_result.output.size(), ipc_result.output.data());                 \
+    return test_result_var;                                                                                            \
+  }
 
 #define EXPECT(test_result_var, expr, fmt, ...) \
 if (!(expr)) \
 { \
   test_result_var.failed   = true; \
-  test_result_var.fail_msg = loki_fixed_string<>("[" #expr "] " fmt, ## __VA_ARGS__); \
+  test_result_var.fail_msg = loki_fixed_string<>("%s:%d [" #expr "] " fmt, __FILE__, __LINE__, ## __VA_ARGS__); \
   return test_result_var; \
 }
 
@@ -70,7 +89,7 @@ void print_test_results(test_result const *test)
 
   buf.append("%s (%05.2fs)" LOKI_ANSI_COLOR_RESET "\n", STATUS, test->duration_ms);
 
-  if (test->failed) buf.append("  Message: %s\n\n", test->fail_msg.str);
+  if (test->failed) buf.append("\tMessage=%s\n\n", test->fail_msg.str);
   fprintf(stdout, "%s", buf.str);
 }
 
@@ -128,7 +147,7 @@ test_result helper_setup_blockchain_with_1_service_node(test_result const *conte
 
 void helper_block_until_blockchains_are_synced(daemon_t *daemons, int num_daemons)
 {
-  if (num_daemons < 0)
+  if (num_daemons <= 1)
     return;
 
   daemon_status_t target_status = {};
@@ -217,34 +236,16 @@ helper_blockchain_environment helper_setup_blockchain(test_result const *context
     *wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.str);
     wallet_set_default_testing_settings(wallet);
     assert(wallet_address(wallet, 0, wallet_addr));
-    wallet_mine_until_unlocked_balance(wallet, all_daemons + 0, wallet_balance);
   }
 
   // Mine the initial blocks in the blockchain
   {
-    int const BLOCKS_TO_BATCH_MINE = 4;
-    for (size_t i = 0; i < MIN_BLOCKS_IN_BLOCKCHAIN / BLOCKS_TO_BATCH_MINE; i++)
-    {
-      daemon_mine_n_blocks(all_daemons + 0, &result.wallets[0], BLOCKS_TO_BATCH_MINE);
-      LOKI_FOR_EACH(daemon_index, total_daemons)
-      {
-        daemon_t *daemon = all_daemons + daemon_index;
-        daemon_relay_votes_and_uptime(daemon);
-      }
-      helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
-    }
-
-    for (size_t i = 0; i < MIN_BLOCKS_IN_BLOCKCHAIN % BLOCKS_TO_BATCH_MINE; i++)
-    {
-      daemon_mine_n_blocks(all_daemons + 0, &result.wallets[0], 1);
-      LOKI_FOR_EACH(daemon_index, total_daemons)
-      {
-        daemon_t *daemon = all_daemons + daemon_index;
-        daemon_relay_votes_and_uptime(daemon);
-      }
-      helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
-    }
+    daemon_mine_n_blocks(all_daemons + 0, &result.wallets[0], MIN_BLOCKS_IN_BLOCKCHAIN);
+    helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
   }
+
+  for (wallet_t &wallet : result.wallets)
+    wallet_mine_until_unlocked_balance(&wallet, all_daemons + 0, wallet_balance);
 
   // Register the service node
   LOKI_FOR_EACH(daemon_index, result.num_service_nodes)
@@ -335,7 +336,7 @@ test_result foo()
   return result;
 }
 
-test_result wallet__buy_lns_mapping__session()
+test_result buy_lns_mapping__session()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -343,10 +344,68 @@ test_result wallet__buy_lns_mapping__session()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
   helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  wallet_t *wallet = &environment.wallets[0];
+  daemon_t *daemon = &environment.daemons[0];
 
-  wallet_t *wallet  = &environment.wallets[0];
-  loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
-  wallet_buy_lns_mapping(wallet, nullptr /*owner*/, LOKI_STRING("session"), LOKI_STRING("MySessionName"), value);
+  // Valid mapping
+  loki_string name = LOKI_STRING("MySessionName");
+  {
+    loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+    itest_ipc_result ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
+    EXPECT(result,
+           ipc_return,
+           "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s\n\tThe last received output was=\"%.*s\"",
+           value.len,
+           value.str,
+           name.len,
+           name.str,
+           ipc_return.output.size(),
+           ipc_return.output.data());
+
+    daemon_mine_n_blocks(daemon, wallet, 1);
+
+    // Can't repurchase the same mapping that is already taken
+    ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
+    EXPECT_IPC_RESULT_MSG(result,
+                          !ipc_return,
+                          "Can't purchase a Session mapping that already exists value=%.*s, name=%.*s",
+                          value.len,
+                          value.str,
+                          name.len,
+                          name.str);
+  }
+
+  // Invalid mapping, same name but new value is invalid
+  {
+    loki_string value = LOKI_STRING("0526521d7628d7a8e3278ad7a053b28f0c72f7c85787e6c40fcb98ff8d1aa8cbd4");
+    itest_ipc_result ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
+    EXPECT(result,
+           !ipc_return,
+           "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s\n\tThe last received output was=\"%.*s\"",
+           value.len,
+           value.str,
+           name.len,
+           name.str,
+           ipc_return.output.size(),
+           ipc_return.output.data());
+  }
+
+  // Invalid mapping, needs to start with 05
+  {
+    loki_string value = LOKI_STRING("0x2618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+    loki_string name  = LOKI_STRING("MySessionName");
+    itest_ipc_result ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
+    EXPECT(result,
+           !ipc_return,
+           "Can't purchase a Session mapping value=%.*s, name=%.*s because the value is not prefixed with 05\n\tThe last received output was=\"%.*s\"",
+           value.len,
+           value.str,
+           name.len,
+           name.str,
+           ipc_return.output.size(),
+           ipc_return.output.data());
+  }
   return result;
 }
 
@@ -456,7 +515,6 @@ test_result checkpointing__new_peer_syncs_checkpoints()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  daemon_params.keep_terminal_open = false;
 
   int const NUM_DAEMONS                  = (LOKI_CHECKPOINT_QUORUM_SIZE * 2) + 1;
   int const NUM_SERVICE_NODES            = NUM_DAEMONS - 1;
@@ -554,8 +612,6 @@ test_result checkpointing__deregister_non_participating_peer()
   helper_blockchain_environment environment = {};
   {
     start_daemon_params daemon_params = {};
-    daemon_params.keep_terminal_open  = true;
-
     int const NUM_DAEMONS             = 0;
     int const NUM_WALLETS             = 1;
     int const WALLET_BALANCE          = 100;
@@ -695,7 +751,6 @@ test_result deregistration__n_unresponsive_node()
 
   start_daemon_params daemon_params = {};
   daemon_params.fixed_difficulty    = 1;
-  daemon_params.keep_terminal_open  = false;
   daemon_params.load_latest_hardfork_versions();
 
   int const NUM_DAEMONS                  = (LOKI_STATE_CHANGE_QUORUM_SIZE * 2);
@@ -894,7 +949,6 @@ test_result prepare_registration__check_solo_stake()
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  daemon_params.keep_terminal_open = false;
 
   daemon_t daemon = create_and_start_daemon(daemon_params, result.name.str);
   LOKI_DEFER { daemon_exit(&daemon); };
@@ -2319,8 +2373,8 @@ test_result v11__transfer__check_fee_amount_bulletproofs()
   daemon_mine_n_blocks(&daemon, &src_wallet, 100);
 
   loki_addr src_addr = {}, dest_addr = {};
-  LOKI_ASSERT(wallet_address(&src_wallet, 0,  &src_addr));
-  LOKI_ASSERT(wallet_address(&dest_wallet, 0, &dest_addr));
+  EXPECT_IPC_RESULT(result, wallet_address(&src_wallet, 0,  &src_addr));
+  EXPECT_IPC_RESULT(result, wallet_address(&dest_wallet, 0, &dest_addr));
 
   int64_t const fee_estimate = 2170050;
   int64_t const epsilon      = 1000000;

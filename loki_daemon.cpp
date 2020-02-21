@@ -19,18 +19,18 @@ void daemon_exit(daemon_t *daemon)
 
 std::vector<daemon_checkpoint> daemon_print_checkpoints(daemon_t *daemon)
 {
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("No Checkpoints"), true},
     {LOKI_STRING("Type"), false},
   };
 
   std::vector<daemon_checkpoint> result;
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, "print_checkpoints", possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[output.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, "print_checkpoints", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return result;
 
-  char const *ptr = output.buf.c_str();
+  char const *ptr = ipc_result.output.c_str();
   for (ptr = str_find(ptr, "Type: "); ptr; ptr = str_find(ptr, "Type: "))
   {
     char const *type_value   = str_skip_to_next_word_inplace(&ptr);
@@ -52,8 +52,8 @@ std::vector<daemon_checkpoint> daemon_print_checkpoints(daemon_t *daemon)
 
 uint64_t daemon_print_height(daemon_t *daemon)
 {
-  itest_read_result output = itest_write_then_read_stdout(&daemon->ipc, "print_height");
-  uint64_t result = static_cast<uint64_t>(atoi(output.buf.c_str()));
+  itest_ipc_result ipc_result = itest_write_then_read_stdout(&daemon->ipc, "print_height");
+  uint64_t result = static_cast<uint64_t>(atoi(ipc_result.output.c_str()));
   return result;
 }
 
@@ -73,7 +73,7 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
   // TODO(doyle): Handle fee properly
 
   // Expected Format: register_service_node <owner cut> <address> <fraction> [<address> <fraction> [...]]]
-  itest_read_result output                     = {};
+  itest_ipc_result ipc_result              = {};
   char const *register_snode_start_ptr = nullptr;
   itest_write_to_stdin(&daemon->ipc, "prepare_registration");
   if (params->num_contributors == 1)
@@ -87,9 +87,9 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STRING("How much loki does the operator want to reserve in the stake?"), owner_amount.str);
       itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STRING("You will leave the remaining portion of"), "y");
       itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STRING("Do you confirm the information above is correct?"), "y");
-      output = itest_read_stdout(&daemon->ipc);
+      ipc_result = itest_read_stdout(&daemon->ipc);
 
-      char const *register_str = str_find(output.buf.c_str(), "register_service_node");
+      char const *register_str = str_find(ipc_result.output.c_str(), "register_service_node");
       char const *ptr          = register_str;
       result                  &= (register_str != nullptr);
 
@@ -111,9 +111,9 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
       itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STRING("Will the operator contribute the entire stake?"), "y");
       itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STRING("Enter the loki address for the solo staker"), owner->addr.buf.str);
       itest_read_until_then_write_stdin(&daemon->ipc, LOKI_STRING("Do you confirm the information above is correct?"), "y");
-      output = itest_read_stdout(&daemon->ipc);
+      ipc_result = itest_read_stdout(&daemon->ipc);
 
-      char const *register_str = str_find(output.buf.c_str(), "register_service_node");
+      char const *register_str = str_find(ipc_result.output.c_str(), "register_service_node");
       char const *prev         = register_str;
       result                  &= (register_str != nullptr);
 
@@ -146,15 +146,15 @@ bool daemon_prepare_registration(daemon_t *daemon, daemon_prepare_registration_p
     {
       loki_contributor const *contributor = params->contributors + i;
       loki_fixed_string<32> contributor_amount("%zu", contributor->amount);
-      output = itest_write_then_read_stdout(&daemon->ipc, contributor->addr.buf.str);
+      ipc_result = itest_write_then_read_stdout(&daemon->ipc, contributor->addr.buf.str);
       itest_write_then_read_stdout(&daemon->ipc, contributor_amount.str);
     }
 
     if (params->open_pool)
-      output = itest_write_then_read_stdout(&daemon->ipc, "y"); // You will leave remaining portion for open to contribution etc.
+      ipc_result = itest_write_then_read_stdout(&daemon->ipc, "y"); // You will leave remaining portion for open to contribution etc.
 
-    output                   = itest_write_then_read_stdout_until(&daemon->ipc, "y", LOKI_STRING("Run this command in the wallet")); // Confirm
-    char const *register_str = str_find(output.buf.c_str(), "register_service_node");
+    ipc_result               = itest_write_then_read_stdout_until(&daemon->ipc, "y", LOKI_STRING("Run this command in the wallet")); // Confirm
+    char const *register_str = str_find(ipc_result.output.c_str(), "register_service_node");
     char const *ptr          = register_str;
     result                   &= (register_str != nullptr);
 
@@ -205,17 +205,17 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
   daemon_snode_status result = {};
   loki_fixed_string<256> cmd("print_sn %s", key->str);
 
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("No service node is currently known on the network"), true},
     {LOKI_STRING("Service Node Registration State"), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[output.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return result;
 
-  char const *ptr                       = output.buf.c_str();
+  char const *ptr                       = ipc_result.output.c_str();
   char const *registration_label        = str_find(ptr, "Service Node Registration State");
   char const *num_registered_snodes_str = str_skip_to_next_digit(registration_label);
   int num_registered_snodes             = atoi(num_registered_snodes_str);
@@ -230,8 +230,8 @@ daemon_snode_status daemon_print_sn(daemon_t *daemon, loki_snode_key const *key)
 
 bool daemon_print_sn_key(daemon_t *daemon, loki_snode_key *key)
 {
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, "print_sn_key", LOKI_STRING("Service Node Public Key: "));
-  char const *key_ptr = str_find(output.buf.c_str(), ":");
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, "print_sn_key", LOKI_STRING("Service Node Public Key: "));
+  char const *key_ptr = str_find(ipc_result.output.c_str(), ":");
   key_ptr = str_skip_to_next_alphanum(key_ptr);
 
   if (key)
@@ -247,13 +247,13 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 {
 
   daemon_snode_status result = {};
-  itest_read_result output    = itest_write_then_read_stdout(&daemon->ipc, "print_sn_status");
+  itest_ipc_result ipc_result    = itest_write_then_read_stdout(&daemon->ipc, "print_sn_status");
 
-  if (str_find(output.buf.c_str(), "No service node is currently known on the network"))
+  if (str_find(ipc_result.output.c_str(), "No service node is currently known on the network"))
     return result;
 
   result.known_on_the_network    = true;
-  char const *registration_label = str_find(output.buf.c_str(), "Service Node Registration State");
+  char const *registration_label = str_find(ipc_result.output.c_str(), "Service Node Registration State");
   if (!registration_label)
     return result;
 
@@ -301,8 +301,8 @@ daemon_snode_status daemon_print_sn_status(daemon_t *daemon)
 uint64_t daemon_print_sr(daemon_t *daemon, uint64_t height)
 {
   loki_fixed_string<32> cmd("print_sr %zu", height);
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, LOKI_STRING("Staking Requirement: "));
-  char const *staking_requirement_str = str_find(output.buf.c_str(), ":");
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, LOKI_STRING("Staking Requirement: "));
+  char const *staking_requirement_str = str_find(ipc_result.output.c_str(), ":");
   ++staking_requirement_str;
   uint64_t result = str_parse_loki_amount(staking_requirement_str);
   return result;
@@ -311,17 +311,17 @@ uint64_t daemon_print_sr(daemon_t *daemon, uint64_t height)
 bool daemon_print_tx(daemon_t *daemon, char const *tx_id, std::string *output)
 {
   loki_fixed_string<256> cmd("print_tx %s +json", tx_id);
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Error: Transaction wasn't found"), true},
     {LOKI_STRING("output_unlock_times"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return false;
 
-  if (output) *output = std::move(read_result.buf);
+  if (output) *output = std::move(ipc_result.output);
   return true;
 }
 
@@ -334,14 +334,14 @@ void daemon_print_cn(daemon_t *daemon)
 bool daemon_relay_tx(daemon_t *daemon, char const *tx_id)
 {
   loki_fixed_string<256> cmd("relay_tx %s", tx_id);
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Unsuccessful -- transaction not found in pool"), true},
     {LOKI_STRING("Transaction successfully relayed"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return false;
 
   return true;
@@ -354,13 +354,13 @@ bool daemon_ban(daemon_t *daemon, loki_fixed_string<32> const *ip)
   // TODO(doyle): This relies on not muting the log levels in the integration binaries by setting the log categories to ""
   // which we would parse to determine if the ban was successful for not
 #if 1
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Error: Invalid IP"), true},
     {LOKI_STRING("blocked"), false},
   };
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return false;
 #else
   itest_write_to_stdin(&daemon->ipc, cmd.c_str);
@@ -374,14 +374,14 @@ bool daemon_unban(daemon_t *daemon, loki_fixed_string<32> const *ip)
 {
   loki_fixed_string<64> cmd("unban %s", ip->str);
 #if 1
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Error: Invalid IP"), true},
     {LOKI_STRING("unblocked"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return false;
 #else
   itest_write_to_stdin(&daemon->ipc, cmd.c_str);
@@ -395,13 +395,13 @@ bool daemon_set_log(daemon_t *daemon, int level)
 {
   loki_fixed_string<64> cmd("set_log %d", level);
 
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Log level is now"), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return false;
 
   return true;
@@ -416,18 +416,18 @@ daemon_status_t daemon_status(daemon_t *daemon)
 {
   // Example:
   // Height: 67/67 (100.0%) on testnet, not mining, net hash 4 H/s, v9, up to date, 0(out)+0(in) connections, uptime 0d 0h 0m 0s
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Error: Problem fetching info -- "), true},
     {LOKI_STRING("Height: "), false},
   };
 
-  itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, "status", possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[output.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, "status", possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return {};
 
   daemon_status_t result = {};
-  char const *ptr        = output.buf.c_str();
+  char const *ptr        = ipc_result.output.c_str();
   char const *height_str = str_skip_to_next_digit_inplace(&ptr);
   result.height          = atoi(height_str);
 
@@ -442,17 +442,17 @@ daemon_status_t daemon_status(daemon_t *daemon)
 bool daemon_print_block(daemon_t *daemon, uint64_t height, loki_hash64 *block_hash)
 {
   loki_fixed_string<64> cmd("print_block %zu", height);
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Error: Unsuccessful --"), true},
     {LOKI_STRING("timestamp: "), false},
   };
 
-  itest_read_result read_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-  if (possible_values[read_result.matching_find_strs_index].is_fail_msg)
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
     return false;
 
-  char const *ptr        = read_result.buf.c_str();
+  char const *ptr        = ipc_result.output.c_str();
   char const *hash_label = str_find(ptr, "hash: ");
   char const *hash       = str_skip_to_next_word(hash_label);
   *block_hash            = hash;
@@ -473,29 +473,15 @@ bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
 
 void daemon_mine_n_blocks(daemon_t *daemon, loki_addr const *addr, int num_blocks)
 {
-  itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
   {
     {LOKI_STRING("Mining stopped in daemon"), false},
     {LOKI_STRING("integration_test invalid command"), true},
   };
 
-  // TODO(doyle): This is a hacky workaround, seems to be some race condition in
-  // that sometimes the mining log strings from the daemon gets read from shared
-  // memory and put into the command, like so and produces invalid command result
-
-  // integration_test debug_mine_n_blocks Height 209, txid <497d5d8fd990625a70f39c3dd25d0f4e3365e182c29c673476bc1dc85afcd78a>, 57.499509760 1
-  // integration_test invalid command
-
-  for (;;)
-  {
-      loki_fixed_string<256> cmd("integration_test debug_mine_n_blocks %s %d", addr->buf.str, num_blocks);
-      itest_read_result output = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
-      if (!possible_values[output.matching_find_strs_index].is_fail_msg)
-      {
-          break;
-      }
-  }
-
+  loki_fixed_string<256> cmd("integration_test debug_mine_n_blocks %s %d", addr->buf.str, num_blocks);
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&daemon->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  LOKI_ASSERT(ipc_result);
 }
 
 void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t desired_height)

@@ -152,34 +152,36 @@ struct itest_ipc
 };
 void itest_ipc_clean_up(itest_ipc *ipc);
 
+struct itest_ipc_result
+{
+  bool                    failed;
+  loki_fixed_string<1024> fail_string;
+  std::string             output;
+  operator bool() const { return !failed; }
+};
+
 // -------------------------------------------------------------------------------------------------
 //
 // itest
 //
 // -------------------------------------------------------------------------------------------------
-struct itest_read_result
-{
-  int         matching_find_strs_index;
-  std::string buf;
-};
-
 struct itest_read_possible_value
 {
   loki_string literal;
-  bool         is_fail_msg;
+  bool        is_fail_msg;
 };
 
 const int ITEST_DEFAULT_TIMEOUT_MS = 100;
 const int ITEST_INFINITE_TIMEOUT   = -1;
-void              itest_write_to_stdin              (itest_ipc *ipc, char const *src);
-itest_read_result itest_write_then_read_stdout      (itest_ipc *ipc, char const *src);
-itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, loki_string find_str);
-itest_read_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, itest_read_possible_value const *possible_values, int possible_values_len);
-void              itest_read_stdout_sink            (itest_ipc *ipc, int seconds);
-itest_read_result itest_read_stdout                 (itest_ipc *ipc);
-itest_read_result itest_read_stdout_until           (itest_ipc *ipc, char const *find_str);
-itest_read_result itest_read_stdout_until           (itest_ipc *ipc, itest_read_possible_value const *possible_values, int possible_values_len);
-void              itest_read_until_then_write_stdin (itest_ipc *ipc, loki_string find_str, char const *src);
+itest_ipc_result itest_write_to_stdin              (itest_ipc *ipc, char const *src);
+itest_ipc_result itest_write_then_read_stdout      (itest_ipc *ipc, char const *src);
+itest_ipc_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, loki_string find_str);
+itest_ipc_result itest_write_then_read_stdout_until(itest_ipc *ipc, char const *src, itest_read_possible_value const *possible_values, int possible_values_len);
+void             itest_read_stdout_sink            (itest_ipc *ipc, int seconds);
+itest_ipc_result itest_read_stdout                 (itest_ipc *ipc);
+itest_ipc_result itest_read_stdout_until           (itest_ipc *ipc, char const *find_str);
+itest_ipc_result itest_read_stdout_until           (itest_ipc *ipc, itest_read_possible_value const *possible_values, int possible_values_len);
+void             itest_read_until_then_write_stdin (itest_ipc *ipc, loki_string find_str, char const *src);
 
 // -------------------------------------------------------------------------------------------------
 //

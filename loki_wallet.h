@@ -56,7 +56,7 @@ bool                 wallet_stake                        (wallet_t *wallet, loki
 bool                 wallet_status                       (wallet_t *wallet, uint64_t *height); // height: The current height the wallet is synced at
 
 // TODO(doyle): Need to support integrated address
-bool                 wallet_sweep_all                    (wallet_t *wallet, char      const *dest, loki_transaction *tx);
+itest_ipc_result     wallet_sweep_all                    (wallet_t *wallet, char      const *dest, loki_transaction *tx);
 bool                 wallet_transfer                     (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
 bool                 wallet_transfer                     (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
 

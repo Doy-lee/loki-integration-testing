@@ -607,11 +607,7 @@ int main(int argc, char **argv)
   //  - show_transfers distinguishes payments
   //  - creating accounts and subaddresses
   //  - transferring big amounts of loki
-
-  //  - when a test fails using the EXPECT macro we should preserve the error
-  //    message from the program, because right now we auto close the terminals
-  //    which means when it fails, we need to step into the debugger and inspect
-  //    the program to figure out why it failed.
+  //  - switch to itest_ipc_result to preserve errors from lokid/wallet cli as much as possible
 
   if (argc > 1)
   {
@@ -793,50 +789,52 @@ int main(int argc, char **argv)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
-#if 0
-  global_work_queue.jobs.push_back(buy_lns_mapping__session);
+#if 1
 
-  global_work_queue.jobs.push_back(checkpointing__deregister_non_participating_peer);
-  global_work_queue.jobs.push_back(checkpointing__new_peer_syncs_checkpoints);
-  global_work_queue.jobs.push_back(checkpointing__private_chain_reorgs_to_checkpoint_chain);
+  global_work_queue.jobs.push_back(daemon__checkpointing__deregister_non_participating_peer);
+  global_work_queue.jobs.push_back(daemon__checkpointing__new_peer_syncs_checkpoints);
+  global_work_queue.jobs.push_back(daemon__checkpointing__private_chain_reorgs_to_checkpoint_chain);
 
   // NOTE(doyle): Doesn't work
-  // global_work_queue.jobs.push_back(decommission__recommission_on_uptime_proof);
+  // global_work_queue.jobs.push_back(daemon__decommission__recommission_on_uptime_proof);
 
-  global_work_queue.jobs.push_back(deregistration__n_unresponsive_node);
+  global_work_queue.jobs.push_back(daemon__deregistration__n_unresponsive_node);
 
-  global_work_queue.jobs.push_back(prepare_registration__check_100_percent_operator_cut_stake);
-  global_work_queue.jobs.push_back(prepare_registration__check_all_solo_stake_forms_valid_registration);
-  global_work_queue.jobs.push_back(prepare_registration__check_solo_stake);
+  global_work_queue.jobs.push_back(daemon__prepare_registration__check_100_percent_operator_cut_stake);
+  global_work_queue.jobs.push_back(daemon__prepare_registration__check_all_solo_stake_forms_valid_registration);
+  global_work_queue.jobs.push_back(daemon__prepare_registration__check_solo_stake);
 
-  global_work_queue.jobs.push_back(print_locked_stakes__check_no_locked_stakes);
-  global_work_queue.jobs.push_back(print_locked_stakes__check_shows_locked_stakes);
+  global_work_queue.jobs.push_back(wallet__buy_lns_mapping__session);
 
-  global_work_queue.jobs.push_back(register_service_node__allow_43_23_13_21_reserved_contribution);
-  global_work_queue.jobs.push_back(register_service_node__allow_4_stakers);
-  global_work_queue.jobs.push_back(register_service_node__allow_70_20_and_10_open_for_contribution);
-  global_work_queue.jobs.push_back(register_service_node__allow_87_13_contribution);
-  global_work_queue.jobs.push_back(register_service_node__allow_87_13_reserved_contribution);
-  global_work_queue.jobs.push_back(register_service_node__check_unlock_time_is_0);
-  global_work_queue.jobs.push_back(register_service_node__disallow_register_twice);
+  global_work_queue.jobs.push_back(wallet__print_locked_stakes__check_no_locked_stakes);
+  global_work_queue.jobs.push_back(wallet__print_locked_stakes__check_shows_locked_stakes);
 
-  global_work_queue.jobs.push_back(request_stake_unlock__check_pooled_stake_unlocked);
-  global_work_queue.jobs.push_back(request_stake_unlock__check_unlock_height);
-  global_work_queue.jobs.push_back(request_stake_unlock__disallow_request_on_non_existent_node);
-  global_work_queue.jobs.push_back(request_stake_unlock__disallow_request_twice);
+  global_work_queue.jobs.push_back(wallet__register_service_node__allow_43_23_13_21_reserved_contribution);
+  global_work_queue.jobs.push_back(wallet__register_service_node__allow_4_stakers);
+  global_work_queue.jobs.push_back(wallet__register_service_node__allow_70_20_and_10_open_for_contribution);
+  global_work_queue.jobs.push_back(wallet__register_service_node__allow_87_13_contribution);
+  global_work_queue.jobs.push_back(wallet__register_service_node__allow_87_13_reserved_contribution);
+  global_work_queue.jobs.push_back(wallet__register_service_node__check_unlock_time_is_0);
+  global_work_queue.jobs.push_back(wallet__register_service_node__disallow_register_twice);
 
-  global_work_queue.jobs.push_back(stake__allow_incremental_stakes_with_1_contributor);
-  global_work_queue.jobs.push_back(stake__check_incremental_stakes_decreasing_min_contribution);
-  global_work_queue.jobs.push_back(stake__check_transfer_doesnt_used_locked_key_images);
-  global_work_queue.jobs.push_back(stake__disallow_staking_less_than_minimum_in_pooled_node);
-  global_work_queue.jobs.push_back(stake__disallow_staking_when_all_amounts_reserved);
-  global_work_queue.jobs.push_back(stake__disallow_to_non_registered_node);
+  global_work_queue.jobs.push_back(wallet__request_stake_unlock__check_pooled_stake_unlocked);
+  global_work_queue.jobs.push_back(wallet__request_stake_unlock__check_unlock_height);
+  global_work_queue.jobs.push_back(wallet__request_stake_unlock__disallow_request_on_non_existent_node);
+  global_work_queue.jobs.push_back(wallet__request_stake_unlock__disallow_request_twice);
 
-  global_work_queue.jobs.push_back(transfer__check_fee_amount_80x_increase);
+  global_work_queue.jobs.push_back(wallet__stake__allow_incremental_stakes_with_1_contributor);
+  global_work_queue.jobs.push_back(wallet__stake__check_incremental_stakes_decreasing_min_contribution);
+  global_work_queue.jobs.push_back(wallet__stake__check_transfer_doesnt_used_locked_key_images);
+  global_work_queue.jobs.push_back(wallet__stake__disallow_staking_less_than_minimum_in_pooled_node);
+  global_work_queue.jobs.push_back(wallet__stake__disallow_staking_when_all_amounts_reserved);
+  global_work_queue.jobs.push_back(wallet__stake__disallow_to_non_registered_node);
 
-  global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
+  global_work_queue.jobs.push_back(wallet__sweep_all);
+
+  global_work_queue.jobs.push_back(wallet__transfer__check_fee_amount_80x_increase);
+
+  global_work_queue.jobs.push_back(v11__wallet__transfer__check_fee_amount_bulletproofs);
 #else
-  global_work_queue.jobs.push_back(buy_lns_mapping__session);
 #endif
 
   std::vector<std::thread> threads;

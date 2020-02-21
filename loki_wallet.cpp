@@ -254,15 +254,22 @@ uint64_t wallet_status(wallet_t *wallet)
   return result;
 }
 
-bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
+itest_ipc_result wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
 {
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STRING("Transaction 1/"), false},
+    {LOKI_STRING("Error"), true},
+  };
+
   // TODO(doyle): Failure states
   // Example:
   // Transaction 1/1: ...
   // Sweeping 30298.277954908 for a total fee of 2.237828840.  Is this okay?  (Y/Yes/N/No):
   loki_fixed_string<128> cmd("sweep_all %s", dest);
-  itest_write_to_stdin(&wallet->ipc, cmd.str);
-  itest_ipc_result ipc_result = itest_read_stdout_until(&wallet->ipc, "Transaction 1/");
+  itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (!ipc_result)
+      return ipc_result;
 
   // Sending amount
   char const *tx_divisor   = str_find(ipc_result.output.c_str(), "/");
@@ -271,22 +278,21 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   char const *amount_str   = str_skip_to_next_digit(amount_label);
   uint64_t atomic_amount   = str_parse_loki_amount(amount_str);
 
-  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
+  LOCAL_PERSIST itest_read_possible_value const possible_values2[] =
   {
     {LOKI_STRING("was rejected by daemon"), true},
     {LOKI_STRING("You can check its status by using the `show_transfers` command"), false},
   };
+  ipc_result = itest_write_then_read_stdout_until(&wallet->ipc, "y", possible_values2, LOKI_ARRAY_COUNT(possible_values2));
 
-  ipc_result = itest_write_then_read_stdout_until(&wallet->ipc, "y", possible_values, LOKI_ARRAY_COUNT(possible_values));
-
-  if (tx)
+  if (ipc_result && tx)
   {
     // TODO(doyle): Incomplete
     tx->dest.set_normal_addr(dest);
     tx->atomic_amount = atomic_amount;
   }
 
-  return true;
+  return ipc_result;
 }
 
 FILE_SCOPE itest_ipc_result wallet__submit_and_parse_transfer_output(itest_ipc *ipc, loki_string cmd, char const *dest, loki_transaction *tx)

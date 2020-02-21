@@ -41,6 +41,7 @@ if (!(expr)) \
 #define LOKI_ANSI_COLOR_CYAN    "\x1b[36m"
 #define LOKI_ANSI_COLOR_RESET   "\x1b[0m"
 
+#if 0
 FILE_SCOPE char const *LOKI_TESTNET_ADDR[] = // Some fake addresses for use in tests
 {
   "T6U4ukY68vohsfrGMryFmqX5yRE4d5EC8E6QbinSo8ssW3heqoNjgNggTeym9NSLW4cnEp3ckpD9RZLW5qDGg3821c9SAtHMD",
@@ -48,6 +49,7 @@ FILE_SCOPE char const *LOKI_TESTNET_ADDR[] = // Some fake addresses for use in t
   "T6SPR75TN9d2x5nYJ1cMN2DWyDpNU2mqvCYb8dceqEKoGqrcKh7sfUAR47HiVrbKsdfibnkLJhW5JexajLrh2ouR177VDj4Lt",
   "T6TbA1iusFDiBwuuRvarSi91o7uVxbqwJirFJiWJvmQ1KnUHoiyXCDh8rBzegzK3oVTECSKLvQrfyAHCbJfhbZui27UufvZJt",
 };
+#endif
 
 FILE_SCOPE char const *LOKI_MAINNET_ADDR[] = // Some fake addresses for use in tests
 {
@@ -336,7 +338,29 @@ test_result foo()
   return result;
 }
 
-test_result buy_lns_mapping__session()
+test_result wallet__sweep_all()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  wallet_t *wallet = &environment.wallets[0];
+
+  loki_addr address = {};
+  {
+    itest_ipc_result ipc_result = wallet_address(wallet, 0, &address);
+    EXPECT_IPC_RESULT(result, ipc_result);
+  }
+
+  itest_ipc_result ipc_result = wallet_sweep_all(wallet, address.buf.str, nullptr /*tx*/);
+  EXPECT_IPC_RESULT(result, ipc_result);
+  return result;
+}
+
+test_result wallet__buy_lns_mapping__session()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -409,7 +433,7 @@ test_result buy_lns_mapping__session()
   return result;
 }
 
-test_result checkpointing__private_chain_reorgs_to_checkpoint_chain()
+test_result daemon__checkpointing__private_chain_reorgs_to_checkpoint_chain()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -508,7 +532,7 @@ test_result checkpointing__private_chain_reorgs_to_checkpoint_chain()
   return result;
 }
 
-test_result checkpointing__new_peer_syncs_checkpoints()
+test_result daemon__checkpointing__new_peer_syncs_checkpoints()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -601,7 +625,7 @@ test_result checkpointing__new_peer_syncs_checkpoints()
   return result;
 }
 
-test_result checkpointing__deregister_non_participating_peer()
+test_result daemon__checkpointing__deregister_non_participating_peer()
 {
   // NOTE: Setup environment
   test_result result = {};
@@ -669,7 +693,7 @@ test_result checkpointing__deregister_non_participating_peer()
   return result;
 }
 
-test_result decommission__recommission_on_uptime_proof()
+test_result daemon__decommission__recommission_on_uptime_proof()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -744,7 +768,7 @@ test_result decommission__recommission_on_uptime_proof()
   return result;
 }
 
-test_result deregistration__n_unresponsive_node()
+test_result daemon__deregistration__n_unresponsive_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -893,7 +917,7 @@ test_result deregistration__n_unresponsive_node()
   return result;
 }
 
-test_result prepare_registration__check_all_solo_stake_forms_valid_registration()
+test_result daemon__prepare_registration__check_all_solo_stake_forms_valid_registration()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -942,7 +966,7 @@ test_result prepare_registration__check_all_solo_stake_forms_valid_registration(
   return result;
 }
 
-test_result prepare_registration__check_solo_stake()
+test_result daemon__prepare_registration__check_solo_stake()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -988,7 +1012,7 @@ test_result prepare_registration__check_solo_stake()
   return result;
 }
 
-test_result prepare_registration__check_100_percent_operator_cut_stake()
+test_result daemon__prepare_registration__check_100_percent_operator_cut_stake()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1044,7 +1068,7 @@ test_result prepare_registration__check_100_percent_operator_cut_stake()
   return result;
 }
 
-test_result print_locked_stakes__check_no_locked_stakes()
+test_result wallet__print_locked_stakes__check_no_locked_stakes()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1071,7 +1095,7 @@ test_result print_locked_stakes__check_no_locked_stakes()
   return result;
 }
 
-test_result print_locked_stakes__check_shows_locked_stakes()
+test_result wallet__print_locked_stakes__check_shows_locked_stakes()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1140,7 +1164,7 @@ test_result print_locked_stakes__check_shows_locked_stakes()
   return result;
 }
 
-test_result register_service_node__allow_4_stakers()
+test_result wallet__register_service_node__allow_4_stakers()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1208,7 +1232,7 @@ test_result register_service_node__allow_4_stakers()
   return result;
 }
 
-test_result register_service_node__allow_70_20_and_10_open_for_contribution()
+test_result wallet__register_service_node__allow_70_20_and_10_open_for_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1277,7 +1301,7 @@ test_result register_service_node__allow_70_20_and_10_open_for_contribution()
   return result;
 }
 
-test_result register_service_node__allow_43_23_13_21_reserved_contribution()
+test_result wallet__register_service_node__allow_43_23_13_21_reserved_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1396,7 +1420,7 @@ test_result register_service_node__allow_43_23_13_21_reserved_contribution()
   return result;
 }
 
-test_result register_service_node__allow_87_13_reserved_contribution()
+test_result wallet__register_service_node__allow_87_13_reserved_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1490,7 +1514,7 @@ test_result register_service_node__allow_87_13_reserved_contribution()
   return result;
 }
 
-test_result register_service_node__allow_87_13_contribution()
+test_result wallet__register_service_node__allow_87_13_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1581,7 +1605,7 @@ test_result register_service_node__allow_87_13_contribution()
   return result;
 }
 
-test_result register_service_node__disallow_register_twice()
+test_result wallet__register_service_node__disallow_register_twice()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1627,7 +1651,7 @@ test_result register_service_node__disallow_register_twice()
   return result;
 }
 
-test_result register_service_node__check_unlock_time_is_0()
+test_result wallet__register_service_node__check_unlock_time_is_0()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1671,7 +1695,7 @@ test_result register_service_node__check_unlock_time_is_0()
   return result;
 }
 
-test_result request_stake_unlock__check_pooled_stake_unlocked()
+test_result wallet__request_stake_unlock__check_pooled_stake_unlocked()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1788,7 +1812,10 @@ test_result request_stake_unlock__check_pooled_stake_unlocked()
 
   // Sweep to dummy wallet
   LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
-    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
+  {
+    itest_ipc_result ipc_result = wallet_sweep_all(wallets + i, dummy_addr.buf.str, nullptr);
+    EXPECT_IPC_RESULT_MSG(result, ipc_result, "Failed to sweep all on wallet: %d", (int)i);
+  }
 
   // Check the remaining balance is zero, NOTE: +2 to get the sweep transaction on chain
   daemon_mine_n_blocks(&daemon, &dummy_wallet, LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW + 2);
@@ -1804,7 +1831,7 @@ test_result request_stake_unlock__check_pooled_stake_unlocked()
   return result;
 }
 
-test_result request_stake_unlock__check_unlock_height()
+test_result wallet__request_stake_unlock__check_unlock_height()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1859,7 +1886,7 @@ test_result request_stake_unlock__check_unlock_height()
   return result;
 }
 
-test_result request_stake_unlock__disallow_request_on_non_existent_node()
+test_result wallet__request_stake_unlock__disallow_request_on_non_existent_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1886,7 +1913,7 @@ test_result request_stake_unlock__disallow_request_on_non_existent_node()
   return result;
 }
 
-test_result request_stake_unlock__disallow_request_twice()
+test_result wallet__request_stake_unlock__disallow_request_twice()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1936,7 +1963,7 @@ test_result request_stake_unlock__disallow_request_twice()
   return result;
 }
 
-test_result stake__allow_incremental_stakes_with_1_contributor()
+test_result wallet__stake__allow_incremental_stakes_with_1_contributor()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -1984,7 +2011,7 @@ test_result stake__allow_incremental_stakes_with_1_contributor()
   return result;
 }
 
-test_result stake__check_incremental_stakes_decreasing_min_contribution()
+test_result wallet__stake__check_incremental_stakes_decreasing_min_contribution()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2123,7 +2150,10 @@ test_result stake__check_incremental_stakes_decreasing_min_contribution()
 
   // Sweep to dummy wallet
   LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallet_addrs))
-    EXPECT(result, wallet_sweep_all(wallets + i, dummy_addr.buf.str, nullptr), "Failed to sweep all on wallet: %d", (int)i);
+  {
+    itest_ipc_result ipc_result = wallet_sweep_all(wallets + i, dummy_addr.buf.str, nullptr);
+    EXPECT_IPC_RESULT_MSG(result, ipc_result, "Failed to sweep all on wallet: %d", (int)i);
+  }
 
   // Check the remaining balance is zero
   daemon_mine_n_blocks(&daemon, &dummy_wallet, LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW + 2); // NOTE: +1 to get tx on chain
@@ -2139,7 +2169,7 @@ test_result stake__check_incremental_stakes_decreasing_min_contribution()
   return result;
 }
 
-test_result stake__check_transfer_doesnt_used_locked_key_images()
+test_result wallet__stake__check_transfer_doesnt_used_locked_key_images()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2152,11 +2182,16 @@ test_result stake__check_transfer_doesnt_used_locked_key_images()
   helper_setup_blockchain_with_1_service_node(&result, &daemon, &wallet, &my_addr, &snode_key);
 
   daemon_mine_n_blocks(&daemon, &wallet, 1); // Get registration onto the chain
-  EXPECT(result, wallet_sweep_all(&wallet, my_addr.buf.str, nullptr), "Sweeping all outputs should avoid any key images/outputs that are locked and so should succeed.");
+  itest_ipc_result ipc_result = wallet_sweep_all(&wallet, my_addr.buf.str, nullptr);
+
+  EXPECT_IPC_RESULT_MSG(
+      result,
+      ipc_result,
+      "Sweeping all outputs should avoid any key images/outputs that are locked and so should succeed.");
   return result;
 }
 
-test_result stake__disallow_staking_less_than_minimum_in_pooled_node()
+test_result wallet__stake__disallow_staking_less_than_minimum_in_pooled_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2226,7 +2261,7 @@ test_result stake__disallow_staking_less_than_minimum_in_pooled_node()
   return result;
 }
 
-test_result stake__disallow_staking_when_all_amounts_reserved()
+test_result wallet__stake__disallow_staking_when_all_amounts_reserved()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2284,7 +2319,7 @@ test_result stake__disallow_staking_when_all_amounts_reserved()
   return result;
 }
 
-test_result stake__disallow_to_non_registered_node()
+test_result wallet__stake__disallow_to_non_registered_node()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2302,7 +2337,7 @@ test_result stake__disallow_to_non_registered_node()
   return result;
 }
 
-test_result transfer__check_fee_amount_80x_increase()
+test_result wallet__transfer__check_fee_amount_80x_increase()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -2353,7 +2388,7 @@ test_result transfer__check_fee_amount_80x_increase()
   return result;
 }
 
-test_result v11__transfer__check_fee_amount_bulletproofs()
+test_result v11__wallet__transfer__check_fee_amount_bulletproofs()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);

@@ -1,9 +1,6 @@
 #ifndef LOKI_TEST_CASES_H
 #define LOKI_TEST_CASES_H
 
-#include <chrono>
-#include <vector>
-
 struct test_result
 {
   loki_fixed_string<512> name;

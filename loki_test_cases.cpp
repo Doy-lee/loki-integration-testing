@@ -169,58 +169,54 @@ void helper_cleanup_blockchain_environment(helper_blockchain_environment *enviro
     wallet_exit(&wallet);
 }
 
-bool helper_setup_blockchain(helper_blockchain_environment *environment,
-                             test_result const *context,
-                             start_daemon_params daemon_param,
-                             int num_service_nodes,
-                             int num_daemons,
-                             int num_wallets,
-                             int wallet_balance)
+helper_blockchain_environment helper_setup_blockchain(test_result const *context,
+                                                      start_daemon_params daemon_param,
+                                                      int num_service_nodes,
+                                                      int num_daemons,
+                                                      int num_wallets,
+                                                      int wallet_balance)
 {
   assert(num_service_nodes + num_daemons > 0);
   assert(num_wallets > 0);
-  environment->all_daemons.resize(num_service_nodes + num_daemons);
-  environment->daemon_param = daemon_param;
+  helper_blockchain_environment result = {};
+  result.all_daemons.resize(num_service_nodes + num_daemons);
+  result.daemon_param = daemon_param;
 
   if (num_service_nodes)
   {
-    environment->service_nodes     = environment->all_daemons.data();
-    environment->num_service_nodes = num_service_nodes;
-    environment->snode_keys.resize(num_service_nodes);
+    result.service_nodes     = result.all_daemons.data();
+    result.num_service_nodes = num_service_nodes;
+    result.snode_keys.resize(num_service_nodes);
   }
 
   if (num_daemons)
   {
-    environment->daemons     = environment->all_daemons.data() + num_service_nodes;
-    environment->num_daemons = num_daemons;
+    result.daemons     = result.all_daemons.data() + num_service_nodes;
+    result.num_daemons = num_daemons;
   }
 
-  daemon_t *all_daemons = environment->all_daemons.data();
+  daemon_t *all_daemons = result.all_daemons.data();
   int total_daemons     = num_service_nodes + num_daemons;
   {
     create_and_start_multi_daemons(all_daemons, total_daemons, &daemon_param, 1, context->name.str);
     LOKI_FOR_EACH(daemon_index, num_service_nodes)
     {
-      if (!daemon_print_sn_key(environment->service_nodes + daemon_index, &environment->snode_keys[daemon_index]))
-        return false;
+      assert(daemon_print_sn_key(result.service_nodes + daemon_index, &result.snode_keys[daemon_index]));
     }
   }
 
-  environment->wallets.resize(num_wallets);
-  environment->wallets_addr.resize(num_wallets);
+  result.wallets.resize(num_wallets);
+  result.wallets_addr.resize(num_wallets);
   LOKI_FOR_EACH (wallet_index, num_wallets)
   {
-    wallet_t *wallet       = &environment->wallets[wallet_index];
-    loki_addr *wallet_addr = &environment->wallets_addr[wallet_index];
+    wallet_t *wallet       = &result.wallets[wallet_index];
+    loki_addr *wallet_addr = &result.wallets_addr[wallet_index];
 
     start_wallet_params wallet_params = {};
     wallet_params.daemon              = all_daemons + 0;
     *wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.str);
     wallet_set_default_testing_settings(wallet);
-
-    if (!wallet_address(wallet, 0, wallet_addr))
-      return false;
-
+    assert(wallet_address(wallet, 0, wallet_addr));
     wallet_mine_until_unlocked_balance(wallet, all_daemons + 0, wallet_balance);
   }
 
@@ -229,7 +225,7 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
     int const BLOCKS_TO_BATCH_MINE = 4;
     for (size_t i = 0; i < MIN_BLOCKS_IN_BLOCKCHAIN / BLOCKS_TO_BATCH_MINE; i++)
     {
-      daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], BLOCKS_TO_BATCH_MINE);
+      daemon_mine_n_blocks(all_daemons + 0, &result.wallets[0], BLOCKS_TO_BATCH_MINE);
       LOKI_FOR_EACH(daemon_index, total_daemons)
       {
         daemon_t *daemon = all_daemons + daemon_index;
@@ -240,7 +236,7 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
 
     for (size_t i = 0; i < MIN_BLOCKS_IN_BLOCKCHAIN % BLOCKS_TO_BATCH_MINE; i++)
     {
-      daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], 1);
+      daemon_mine_n_blocks(all_daemons + 0, &result.wallets[0], 1);
       LOKI_FOR_EACH(daemon_index, total_daemons)
       {
         daemon_t *daemon = all_daemons + daemon_index;
@@ -251,23 +247,20 @@ bool helper_setup_blockchain(helper_blockchain_environment *environment,
   }
 
   // Register the service node
-  LOKI_FOR_EACH(daemon_index, environment->num_service_nodes)
+  LOKI_FOR_EACH(daemon_index, result.num_service_nodes)
   {
     daemon_prepare_registration_params params             = {};
-    params.contributors[params.num_contributors].addr     = environment->wallets_addr[0];
+    params.contributors[params.num_contributors].addr     = result.wallets_addr[0];
     params.contributors[params.num_contributors++].amount = 100;
 
     loki_fixed_string<> registration_cmd = {};
-    if (!daemon_prepare_registration(&environment->service_nodes[daemon_index], &params, &registration_cmd) ||
-        !wallet_register_service_node(&environment->wallets[0], registration_cmd.str))
-    {
-      return false;
-    }
+    assert(daemon_prepare_registration(&result.service_nodes[daemon_index], &params, &registration_cmd) &&
+           wallet_register_service_node(&result.wallets[0], registration_cmd.str));
   }
 
-  daemon_mine_n_blocks(all_daemons + 0, &environment->wallets[0], 1);
+  daemon_mine_n_blocks(all_daemons + 0, &result.wallets[0], 1);
   helper_block_until_blockchains_are_synced(all_daemons, total_daemons);
-  return true;
+  return result;
 }
 
 bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
@@ -330,9 +323,11 @@ void helper_ban_daemons(BanType type, daemon_t *src, daemon_t *daemons_to_ban, i
   }
 }
 
+// -------------------------------------------------------------------------------------------------
 //
-// Latest Tests
+// tests
 //
+// -------------------------------------------------------------------------------------------------
 test_result foo()
 {
   test_result result = {};
@@ -340,18 +335,14 @@ test_result foo()
   return result;
 }
 
-test_result buy_lns_mapping()
+test_result wallet__buy_lns_mapping()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  helper_blockchain_environment environment = {};
-  {
-    start_daemon_params daemon_params = {};
-    daemon_params.load_latest_hardfork_versions();
-    helper_setup_blockchain(&environment, &result, daemon_params, 0/*num_service_nodes*/, 0/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
-  }
-
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 0/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
 
   return result;
 }
@@ -367,16 +358,7 @@ test_result checkpointing__private_chain_reorgs_to_checkpoint_chain()
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
 
-  helper_blockchain_environment environment = {};
-  EXPECT(result,
-         helper_setup_blockchain(&environment,
-                                 &result,
-                                 daemon_params,
-                                 NUM_SERVICE_NODES,
-                                 NUM_DAEMONS,
-                                 1 /*num wallets*/,
-                                 100 /*wallet_balance*/),
-         "Failed to setup basic blockchain with service nodes");
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, NUM_SERVICE_NODES, NUM_DAEMONS, 1 /*num wallets*/, 100 /*wallet_balance*/);
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
 
   // Naughty daemon disconnects from the main chain by banning everyone
@@ -576,9 +558,7 @@ test_result checkpointing__deregister_non_participating_peer()
     int const WALLET_BALANCE          = 100;
 
     daemon_params.load_latest_hardfork_versions();
-    EXPECT(result,
-           helper_setup_blockchain(&environment, &result, daemon_params, NUM_SERVICE_NODES, NUM_DAEMONS, NUM_WALLETS, WALLET_BALANCE),
-           "Failed to setup basic blockchain with service nodes");
+    environment = helper_setup_blockchain(&result, daemon_params, NUM_SERVICE_NODES, NUM_DAEMONS, NUM_WALLETS, WALLET_BALANCE);
   }
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
 
@@ -640,16 +620,7 @@ test_result decommission__recommission_on_uptime_proof()
     int const NUM_SERVICE_NODES       = (LOKI_STATE_CHANGE_QUORUM_SIZE + 1);
     start_daemon_params daemon_params = {};
     daemon_params.load_latest_hardfork_versions();
-    // daemon_params.keep_terminal_open = false;
-    EXPECT(result,
-           helper_setup_blockchain(&environment,
-                                   &result,
-                                   daemon_params,
-                                   NUM_SERVICE_NODES,
-                                   0 /*num daemons*/,
-                                   1 /*num wallets*/,
-                                   100 /*wallet_balance*/),
-           "Failed to setup basic blockchain with service nodes");
+    environment = helper_setup_blockchain(&result, daemon_params, NUM_SERVICE_NODES, 0 /*num daemons*/, 1 /*num wallets*/, 100 /*wallet_balance*/);
   }
   LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
 

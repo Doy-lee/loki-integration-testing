@@ -768,8 +768,7 @@ int main(int argc, char **argv)
 
     start_daemon_params params                = {};
     params.fixed_difficulty                   = fixed_difficulty;
-    helper_blockchain_environment environment = {};
-    helper_setup_blockchain(&environment, &context, params, num_service_nodes, num_daemons, num_wallets, initial_wallet_balance);
+    helper_blockchain_environment environment = helper_setup_blockchain(&context, params, num_service_nodes, num_daemons, num_wallets, initial_wallet_balance);
     helper_cleanup_blockchain_environment(&environment);
 
     write_daemon_launch_script(&environment, daemon_type::normal);

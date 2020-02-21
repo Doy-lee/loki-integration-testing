@@ -802,7 +802,7 @@ int main(int argc, char **argv)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
-#if 1
+#if 0
   global_work_queue.jobs.push_back(checkpointing__deregister_non_participating_peer);
   global_work_queue.jobs.push_back(checkpointing__new_peer_syncs_checkpoints);
   global_work_queue.jobs.push_back(checkpointing__private_chain_reorgs_to_checkpoint_chain);
@@ -844,6 +844,7 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(v11__transfer__check_fee_amount_bulletproofs);
 #else
   // global_work_queue.jobs.push_back(decommission__recommission_on_uptime_proof);
+  global_work_queue.jobs.push_back(wallet__buy_lns_mapping__session);
 #endif
 
   std::vector<std::thread> threads;

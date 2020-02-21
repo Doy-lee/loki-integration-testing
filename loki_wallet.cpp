@@ -290,10 +290,11 @@ bool wallet_sweep_all(wallet_t *wallet, char const *dest, loki_transaction *tx)
   return true;
 }
 
-bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_transaction *tx)
+FILE_SCOPE bool wallet__submit_and_parse_transfer_output(itest_ipc *ipc, loki_string cmd, char const *dest, loki_transaction *tx)
 {
-  loki_fixed_string<256> cmd("transfer %s %zu", dest, amount);
-  itest_read_result output = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, LOKI_STRING("Is this okay?"));
+  itest_read_result output = itest_write_then_read_stdout_until(ipc, cmd.str, LOKI_STRING("Is this okay?"));
+  if (str_find(&output.buf, LOKI_STRING("Error:")))
+    return false;
 
   // NOTE: Payment ID deprecated
 #if 0
@@ -315,9 +316,8 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
   // Sanity check sending amount
   char const *amount_label = str_find(output.buf.c_str(), "Sending ");
   char const *amount_str   = str_skip_to_next_digit(amount_label);
-  assert(amount_label);
+  LOKI_ASSERT(amount_label);
   uint64_t atomic_amount = str_parse_loki_amount(amount_str);
-  assert(atomic_amount == (amount * LOKI_ATOMIC_UNITS));
 
   if (tx)
   {
@@ -335,7 +335,7 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
     }
   }
 
-  output = itest_write_then_read_stdout_until(&wallet->ipc, "y", LOKI_STRING("You can check its status by using the `show_transfers` command"));
+  output = itest_write_then_read_stdout_until(ipc, "y", LOKI_STRING("You can check its status by using the `show_transfers` command"));
   if (tx) // Extract TX ID
   {
     assert(str_find(output.buf.c_str(), "Transaction successfully submitted, transaction <"));
@@ -344,6 +344,13 @@ bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_t
   }
 
   return true;
+}
+
+bool wallet_transfer(wallet_t *wallet, char const *dest, uint64_t amount, loki_transaction *tx)
+{
+  loki_fixed_string<256> cmd("transfer %s %zu", dest, amount);
+  bool result = wallet__submit_and_parse_transfer_output(&wallet->ipc, cmd.to_string(), dest, tx);
+  return result;
 }
 
 bool wallet_transfer(wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx)
@@ -446,4 +453,15 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
   }
 
   return true;
+}
+
+bool wallet_buy_lns_mapping(wallet_t *wallet, loki_string *owner, loki_string type, loki_string name, loki_string value, loki_transaction *tx)
+{
+  loki_fixed_string<256> cmd("buy_lns_mapping ");
+  if (owner) cmd.append("%.*s ", owner->len, owner->str);
+  cmd.append("%.*s %.*s %.*s", type.len, type.str, name.len, name.str, value.len, value.str);
+  loki_addr address = {};
+  LOKI_ASSERT(wallet_address(wallet, 0, &address));
+  bool result = wallet__submit_and_parse_transfer_output(&wallet->ipc, cmd.to_string(), address.buf.str, tx);
+  return result;
 }

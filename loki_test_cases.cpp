@@ -335,15 +335,18 @@ test_result foo()
   return result;
 }
 
-test_result wallet__buy_lns_mapping()
+test_result wallet__buy_lns_mapping__session()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
   start_daemon_params daemon_params = {};
   daemon_params.load_latest_hardfork_versions();
-  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 0/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
 
+  wallet_t *wallet  = &environment.wallets[0];
+  loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+  wallet_buy_lns_mapping(wallet, nullptr /*owner*/, LOKI_STRING("session"), LOKI_STRING("MySessionName"), value);
   return result;
 }
 

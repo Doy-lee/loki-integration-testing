@@ -66,4 +66,5 @@ uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, daem
 // TODO(doyle): This should return the transaction
 bool                 wallet_request_stake_unlock         (wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height = nullptr);
 bool                 wallet_register_service_node        (wallet_t *wallet, char const *registration_cmd, loki_transaction *tx = nullptr);
+bool                 wallet_buy_lns_mapping              (wallet_t *wallet, loki_string *owner, loki_string type, loki_string name, loki_string value, loki_transaction *tx = nullptr);
 #endif

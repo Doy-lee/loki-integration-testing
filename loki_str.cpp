@@ -50,6 +50,18 @@ char const *str_find(loki_fixed_string<> const *buf, char const *find, int find_
   return result;
 }
 
+char const *str_find(std::string const *src, loki_string find)
+{
+  char const *result = str_find(src->data(), src->size(), find.str, find.len);
+  return result;
+}
+
+char const *str_find(loki_fixed_string<> const *buf, loki_string const find)
+{
+  char const *result = str_find(buf->str, buf->len, find.str, find.len);
+  return result;
+}
+
 bool str_match(char const *src, char const *find, int find_len = -1)
 {
   if (find_len == -1) find_len = strlen(find);

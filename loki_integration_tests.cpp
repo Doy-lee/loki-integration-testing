@@ -326,8 +326,8 @@ void start_daemon(daemon_t *daemons, int num_daemons, start_daemon_params *param
     arg_buf.append("--zmq-rpc-bind-port %d ",        curr_daemon->zmq_rpc_port);
     arg_buf.append("--quorumnet-port %d ",           curr_daemon->quorumnet_port);
     arg_buf.append("--data-dir ./output/daemon_%d ", curr_daemon->id);
-    arg_buf.append("--storage-server-port 4444 ");
-    arg_buf.append("--service-node-public-ip 123.123.123.123 ");
+    arg_buf.append("--storage-server-port 5555 ");
+    arg_buf.append("--service-node-public-ip 127.0.0.1 ");
     arg_buf.append("--dev-allow-local-ips ");
 
     if (num_daemons == 1)
@@ -560,7 +560,7 @@ FILE_SCOPE void write_daemon_launch_script(helper_blockchain_environment const *
     if (type == daemon_type::service_node) 
     {
       cmd_line.append("--service-node ");
-      cmd_line.append("--service-node-public-ip 123.123.123.123 ");
+      cmd_line.append("--service-node-public-ip 127.0.0.1 ");
       cmd_line.append("--storage-server-port 8080 ");
     }
 
@@ -838,11 +838,6 @@ int main(int argc, char **argv)
 
   global_work_queue.jobs.push_back(v11__wallet__transfer__check_fee_amount_bulletproofs);
 #else
-  // global_work_queue.jobs.push_back(wallet__lns_buy_mapping__session);
-  // global_work_queue.jobs.push_back(wallet__lns_update_mapping__session);
-  // global_work_queue.jobs.push_back(wallet__lns_update_mapping__session_multiple_owners);
-  // global_work_queue.jobs.push_back(wallet__lns_print_owners_to_name);
-  // global_work_queue.jobs.push_back(wallet__lns_print_name_to_owners);
 #endif
 
   std::vector<std::thread> threads;

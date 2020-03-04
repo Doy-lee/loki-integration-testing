@@ -71,6 +71,25 @@ struct loki_defer_helper_
 #define LOKI_TOKEN_COMBINE2(a, b) a ## b
 #define LOKI_DEFER const auto LOKI_TOKEN_COMBINE(defer_lambda_, __COUNTER__) = loki_defer_helper_() + [&]()
 
+template <typename T>
+struct loki_slice
+{
+  T    *data;
+  isize len;
+
+  loki_slice() = default;
+  loki_slice(T *data, isize len) { this->data = data; this->len = len; }
+
+  T const &operator[] (isize i) const { return data[i]; }
+  T       &operator[] (isize i)       { return data[i]; }
+  T const *begin      ()        const { return data; }
+  T const *end        ()        const { return data + len; }
+  T       *begin      ()              { return data; }
+  T       *end        ()              { return data + len; }
+  T const *operator+  (isize i) const { return data + i; }
+  T       *operator+  (isize i)       { return data + i; }
+};
+
 // -------------------------------------------------------------------------------------------------
 //
 // strings
@@ -208,8 +227,8 @@ const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS         = LOKI_TARGET_DIFFIC
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_FAKENET = 30;
 const int      LOKI_STAKING_REQUIREMENT_LOCK_BLOCKS_TESTNET = LOKI_TARGET_DIFFICULTY / LOKI_DAYS_TO_S(2);
 const int      LOKI_REORG_SAFETY_BUFFER                     = 20;
-const int      LOKI_STATE_CHANGE_QUORUM_SIZE                = 5;
-const int      LOKI_CHECKPOINT_QUORUM_SIZE                  = 5;
+const int      LOKI_STATE_CHANGE_QUORUM_SIZE                = 10;
+const int      LOKI_CHECKPOINT_QUORUM_SIZE                  = 20;
 const int      LOKI_MAX_NUM_CONTRIBUTORS                    = 4;
 const int      LOKI_MAX_LOCKED_KEY_IMAGES                   = LOKI_MAX_NUM_CONTRIBUTORS * 1;
 const int      LOKI_VOTE_LIFETIME                           = 60;

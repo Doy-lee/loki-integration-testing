@@ -210,7 +210,7 @@ helper_blockchain_environment helper_setup_blockchain(test_result const *context
                                                       int num_service_nodes,
                                                       int num_daemons,
                                                       int num_wallets,
-                                                      int wallet_balance)
+                                                      isize wallet_balance)
 {
   assert(num_service_nodes + num_daemons > 0);
   assert(num_wallets > 0);
@@ -1161,72 +1161,84 @@ test_result daemon__decommission__recommission_on_uptime_proof()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  helper_blockchain_environment environment = {};
+  start_daemon_params daemon_param = {};
+  daemon_param.load_latest_hardfork_versions();
+  daemon_param.keep_terminal_open = true;
+  int const TOTAL_DAEMONS           = (LOKI_STATE_CHANGE_QUORUM_SIZE * 2);
+  helper_blockchain_environment env = helper_setup_blockchain(&result,
+                                                              daemon_param,
+                                                              TOTAL_DAEMONS,
+                                                              0 /*num_daemons*/,
+                                                              1 /*num_wallets*/,
+                                                              (LOKI_FAKENET_STAKING_REQUIREMENT * TOTAL_DAEMONS) * LOKI_ATOMIC_UNITS);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&env); };
+
+  for (daemon_t &daemon : env.all_daemons)
   {
-    int const NUM_SERVICE_NODES       = (LOKI_STATE_CHANGE_QUORUM_SIZE + 1);
-    start_daemon_params daemon_params = {};
-    daemon_params.load_latest_hardfork_versions();
-    environment = helper_setup_blockchain(&result, daemon_params, NUM_SERVICE_NODES, 0 /*num daemons*/, 1 /*num wallets*/, 100 /*wallet_balance*/);
-  }
-  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
-
-  // Naughty daemon disconnects from the main chain
-  int num_good_service_nodes    = environment.num_service_nodes - 1;
-  loki_snode_key *bad_snode_key = environment.snode_keys.data();
-  daemon_t *bad_service_node    = environment.service_nodes + 0;
-  daemon_t *good_service_nodes  = bad_service_node + 1;
-  wallet_t *wallet              = environment.wallets.data();
-
-  daemon_t *miner = good_service_nodes + 0;
-  helper_ban_daemons(BanType::Ban, bad_service_node, good_service_nodes, num_good_service_nodes);
-  daemon_mine_n_blocks(miner, wallet, LOKI_DECOMMISSION_INITIAL_CREDIT + 10);
-  helper_block_until_blockchains_are_synced(good_service_nodes, num_good_service_nodes);
-
-  daemon_snode_status status = {};
-  for (status = daemon_print_sn(miner, bad_snode_key);
-      !status.decommissioned;
-       status = daemon_print_sn(miner, bad_snode_key))
-  {
-    daemon_mine_n_blocks(miner, wallet, 1);
-    LOKI_FOR_ITERATOR(daemon, good_service_nodes, num_good_service_nodes)
-      daemon_relay_votes_and_uptime(daemon);
-    helper_block_until_blockchains_are_synced(good_service_nodes, num_good_service_nodes);
-    os_sleep_ms(1000);
+    daemon_toggle_checkpoint_quorum(&daemon);
+    daemon_toggle_obligation_checkpointing(&daemon);
   }
 
-  EXPECT(result,
-         !status.last_uptime_proof_received,
-         "The node should not have any uptime proof relayed yet, we want to be in decommission, enter a quorum and be "
-         "recommissioned");
+  wallet_t &wallet = env.wallets[0];
+  loki_slice<loki_snode_key> nodes_keys           (env.snode_keys.data(), LOKI_STATE_CHANGE_QUORUM_SIZE);
+  loki_slice<loki_snode_key> decommission_nodes_keys(env.snode_keys.data() + LOKI_STATE_CHANGE_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE);
+  loki_slice<daemon_t> nodes(env.service_nodes, LOKI_STATE_CHANGE_QUORUM_SIZE);
+  loki_slice<daemon_t> decommission_nodes(env.service_nodes + LOKI_STATE_CHANGE_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE);
 
-  helper_ban_daemons(BanType::Unban, bad_service_node, good_service_nodes, num_good_service_nodes);
-  helper_block_until_blockchains_are_synced(environment.service_nodes, environment.num_service_nodes);
+  auto ban_ip = loki_fixed_string<32>("127.0.0.1");
+  for(daemon_t &daemon : decommission_nodes) // Daemons to decommission should ban comms on localhost
+    daemon_ban(&daemon, &ban_ip);
 
-  // NOTE: Relay uptime proof and try a couple of times to see if our uptime proof got received by the service node
-  for (int tries = 0; tries < 100; ++tries)
+  for (auto &daemon : nodes)
+    daemon_relay_votes_and_uptime(&daemon);
+  os_sleep_s(1);
+
+  for (auto const &key : env.snode_keys)
   {
-    for (daemon_t &daemon : environment.all_daemons)
-      daemon_relay_votes_and_uptime(&daemon);
-    status = daemon_print_sn(good_service_nodes + 0, bad_snode_key);
-    if (status.last_uptime_proof_received) break;
-    os_sleep_ms(1000);
+    daemon_snode_status status = daemon_print_sn(&nodes[0], &key);
+    EXPECT(result, status.registered, "We EXPECT all daemons to be registered at this point");
   }
 
-  EXPECT(result,
-         status.last_uptime_proof_received,
-         "The service node reconnected and submitted an uptime proof to the network, this should be received by the other behaving nodes");
-
-  // NOTE: Continue mining until the service node gets recommissioned, which it should for submitting the uptime proof
-  for (status = daemon_print_sn(good_service_nodes + 0, bad_snode_key);
-       status.decommissioned;
-       status = daemon_print_sn(good_service_nodes + 0, bad_snode_key))
+  // Mine atleast LOKI_REORG_SAFETY_BUFFER. Quorum voting can only start after LOKI_REORG_SAFETY_BUFFER
   {
-    daemon_mine_n_blocks(good_service_nodes + 0, wallet, 1);
-    helper_block_until_blockchains_are_synced(environment.service_nodes, environment.num_service_nodes);
-    for (daemon_t &daemon : environment.all_daemons)
-      daemon_relay_votes_and_uptime(&daemon);
-    os_sleep_ms(2000);
+    daemon_mine_n_blocks(&nodes[0], &wallet, LOKI_REORG_SAFETY_BUFFER);
+    os_sleep_s(1);
   }
+
+  // Mine blocks to start decomissioning some
+  {
+    daemon_mine_n_blocks(&nodes[0], &wallet, 10);
+    os_sleep_s(1);
+  }
+
+  int num_decommissioned = 0;
+  for (auto const &key : env.snode_keys)
+  {
+    daemon_snode_status status = daemon_print_sn(&nodes[0], &key);
+    if (status.decommissioned) num_decommissioned++;
+  }
+  EXPECT(result, num_decommissioned > 0, "We EXPECT some daemons to be decommissioned so we can try recommission them");
+
+  for(daemon_t &daemon : decommission_nodes) // Daemons to decommission should unban comms on localhost
+    daemon_unban(&daemon, &ban_ip);
+
+  for (auto &daemon : decommission_nodes)
+    daemon_relay_votes_and_uptime(&daemon);
+  os_sleep_s(1);
+
+  // Mine blocks to start recomissioning some
+  {
+    daemon_mine_n_blocks(&nodes[0], &wallet, 10);
+    os_sleep_s(1);
+  }
+
+  num_decommissioned = 0;
+  for (auto const &key : env.snode_keys)
+  {
+    daemon_snode_status status = daemon_print_sn(&nodes[0], &key);
+    if (status.decommissioned) num_decommissioned++;
+  }
+  EXPECT(result, num_decommissioned == 0, "We EXPECT all daemons to be recommissioned, num_decommissioned=%zd", num_decommissioned);
 
   return result;
 }
@@ -1236,147 +1248,89 @@ test_result daemon__deregistration__n_unresponsive_node()
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
 
-  start_daemon_params daemon_params = {};
-  daemon_params.fixed_difficulty    = 1;
-  daemon_params.load_latest_hardfork_versions();
-  daemon_params.keep_terminal_open = true;
+  start_daemon_params daemon_param = {};
+  daemon_param.load_latest_hardfork_versions();
+  int const TOTAL_DAEMONS           = (LOKI_STATE_CHANGE_QUORUM_SIZE * 2);
+  helper_blockchain_environment env = helper_setup_blockchain(&result,
+                                                              daemon_param,
+                                                              LOKI_STATE_CHANGE_QUORUM_SIZE * 2,
+                                                              0 /*num_daemons*/,
+                                                              1 /*num_wallets*/,
+                                                              (LOKI_FAKENET_STAKING_REQUIREMENT * TOTAL_DAEMONS) * LOKI_ATOMIC_UNITS);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&env); };
 
-  int const NUM_DAEMONS                  = (LOKI_STATE_CHANGE_QUORUM_SIZE * 2);
-  loki_snode_key snode_keys[NUM_DAEMONS] = {};
-  daemon_t daemons[NUM_DAEMONS]          = {};
-  int num_deregister_daemons             = LOKI_STATE_CHANGE_QUORUM_SIZE / 2;
-  int num_register_daemons               = NUM_DAEMONS - num_deregister_daemons;
-
-  loki_snode_key *register_snode_keys    = snode_keys;
-  daemon_t       *deregister_daemons     = daemons    + num_register_daemons;
-  loki_snode_key *deregister_snode_keys  = snode_keys + num_register_daemons;
-
-  create_and_start_multi_daemons(daemons, NUM_DAEMONS, &daemon_params, 1, result.name.str);
-  for (size_t i = 0; i < NUM_DAEMONS; ++i)
+  for (daemon_t &daemon : env.all_daemons)
   {
-    LOKI_ASSERT(daemon_print_sn_key(daemons + i, snode_keys + i));
+    daemon_toggle_checkpoint_quorum(&daemon);
+    daemon_toggle_obligation_checkpointing(&daemon);
   }
 
-  start_wallet_params wallet_params = {};
-  wallet_params.daemon              = daemons + 0;
-  wallet_t wallet                   = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
-  wallet_set_default_testing_settings(&wallet);
+  wallet_t &wallet = env.wallets[0];
+  loki_slice<loki_snode_key> nodes_keys           (env.snode_keys.data(), LOKI_STATE_CHANGE_QUORUM_SIZE);
+  loki_slice<loki_snode_key> deregister_nodes_keys(env.snode_keys.data() + LOKI_STATE_CHANGE_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE);
+  loki_slice<daemon_t> nodes(env.service_nodes, LOKI_STATE_CHANGE_QUORUM_SIZE);
+  loki_slice<daemon_t> deregister_nodes(env.service_nodes + LOKI_STATE_CHANGE_QUORUM_SIZE, LOKI_STATE_CHANGE_QUORUM_SIZE);
 
-  LOKI_DEFER
+  for(daemon_t &daemon : deregister_nodes) // Daemons to deregister should ban comms on localhost
   {
-    wallet_exit(&wallet);
-    for (size_t i = 0; i < (size_t)NUM_DAEMONS; ++i)
-      daemon_exit(daemons + i);
-  };
-
-  // Prepare blockchain, atleast 100 blocks so we have outputs to pick from
-  int const FAKECHAIN_STAKING_REQUIREMENT = 100;
-  {
-    daemon_mine_n_blocks(daemons + 0, &wallet, MIN_BLOCKS_IN_BLOCKCHAIN);
-    wallet_mine_until_unlocked_balance(&wallet, daemons + 0, static_cast<int>(NUM_DAEMONS * FAKECHAIN_STAKING_REQUIREMENT)); // TODO(doyle): Assuming staking requirement of 100 fakechain
+    auto ban_ip = loki_fixed_string<32>("127.0.0.1");
+    daemon_ban(&daemon, &ban_ip);
   }
 
-  // Setup node registration params to come from our single wallet
+  for (auto &daemon : nodes)
+    daemon_relay_votes_and_uptime(&daemon);
+  os_sleep_s(1);
+
+  for (auto const &key : env.snode_keys)
   {
-    daemon_prepare_registration_params register_params                    = {};
-    register_params.contributors[register_params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
-    wallet_address(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
-
-    LOKI_FOR_EACH(i, NUM_DAEMONS) // Register each daemon on the network
-    {
-      loki_fixed_string<> registration_cmd = {};
-      daemon_t *daemon                  = daemons + i;
-      EXPECT(result, daemon_prepare_registration (daemon, &register_params, &registration_cmd), "Failed to prepare registration");
-
-      loki_transaction register_tx = {};
-      EXPECT(result, wallet_register_service_node(&wallet, registration_cmd.str, &register_tx),"Failed to register service node");
-      daemon_relay_tx(daemons + 0, register_tx.id.str);
-
-      daemon_toggle_checkpoint_quorum(daemon);
-      daemon_toggle_obligation_checkpointing(daemon);
-    }
-  }
-
-  // Daemons to deregister should exit so that they don't ping when they get mined onto the chain
-  LOKI_FOR_EACH(i, num_deregister_daemons)
-  {
-    daemon_t *daemon = deregister_daemons + i;
-#if 0
-    loki_fixed_string<32> ip("127.0.0.1");
-    daemon_ban(daemon, &ip);
-#else
-    daemon_exit(daemon);
-#endif
-  }
-
-  // Mine the registration txs onto the chain and check they have been registered
-  {
-    daemon_mine_n_blocks(daemons + 0, &wallet, 2); // Get onto chain
-    helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
-
-    LOKI_FOR_EACH(j, 2)
-    {
-      LOKI_FOR_EACH(i, num_register_daemons)
-      {
-        daemon_t *daemon = daemons + i;
-        daemon_relay_votes_and_uptime(daemon);
-      }
-    }
-
-    LOKI_FOR_EACH(i, NUM_DAEMONS)
-    {
-      // loki_snode_key const *snode_key = snode_keys + i;
-      // daemon_snode_status status      = daemon_print_sn(daemons + 0, snode_key);
-      // EXPECT(result, status.registered, "We EXPECT all daemons to be registered at this point", NUM_DAEMONS);
-    }
+    daemon_snode_status status = daemon_print_sn(&nodes[0], &key);
+    EXPECT(result, status.registered, "We EXPECT all daemons to be registered at this point");
   }
 
   // Mine atleast LOKI_REORG_SAFETY_BUFFER. Quorum voting can only start after LOKI_REORG_SAFETY_BUFFER
   {
-    daemon_mine_n_blocks(daemons + 0, &wallet, LOKI_REORG_SAFETY_BUFFER);
-    helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
-    LOKI_FOR_EACH(i, num_register_daemons)
-    {
-      daemon_t *daemon = daemons + i;
-      daemon_relay_votes_and_uptime(daemon);
-    }
+    daemon_mine_n_blocks(&nodes[0], &wallet, LOKI_REORG_SAFETY_BUFFER);
+    os_sleep_s(1);
+  }
 
-    // Mine blocks to deregister daemons
-    int block_batch = 1;
-    LOKI_FOR_EACH(i, 90 / block_batch)
+  // Mine blocks to use up their decomission credit
+  {
+    daemon_mine_n_blocks(&nodes[0], &wallet, 60);
+    helper_block_until_blockchains_are_synced(nodes.data, nodes.len);
+  }
+
+  // Mine blocks to deregister daemons
+  {
+    int block_batch = 4;
+    LOKI_FOR_EACH(i, (40 / block_batch))
     {
-      daemon_mine_n_blocks(daemons + 0, &wallet, block_batch);
-      LOKI_FOR_EACH(j, num_register_daemons)
-      {
-        daemon_t *daemon = daemons + j;
-        daemon_relay_votes_and_uptime(daemon);
-      }
-      helper_block_until_blockchains_are_synced(daemons, num_register_daemons);
+      daemon_mine_n_blocks(&nodes[0], &wallet, block_batch);
+      for (auto &daemon : nodes)
+        daemon_relay_votes_and_uptime(&daemon);
+      helper_block_until_blockchains_are_synced(nodes.data, nodes.len);
     }
   }
 
   // Check that there are some nodes that have been deregistered. Not
   // necessarily all of them because we may not have formed a quorum that was to
   // vote them off
-  LOKI_FOR_EACH(i, num_register_daemons)
+  LOKI_FOR_EACH(i, nodes.len)
   {
-    loki_snode_key *snode_key             = register_snode_keys + i;
-    daemon_snode_status node_status       = daemon_print_sn(daemons + 0, snode_key);
+    daemon_snode_status node_status       = daemon_print_sn(&nodes[0], &nodes_keys[i]);
     EXPECT(result, node_status.registered == true, "Daemon %d should still be online, pingining and alive!", i);
   }
 
-  int total_registered_daemons = num_register_daemons;
-  LOKI_FOR_EACH(i, num_deregister_daemons)
+  int total_registered_daemons = nodes.len;
+  LOKI_FOR_EACH(i, deregister_nodes.len)
   {
-    loki_snode_key *snode_key             = deregister_snode_keys + i;
-    daemon_snode_status node_status       = daemon_print_sn(daemons + 0, snode_key);
+    daemon_snode_status node_status       = daemon_print_sn(&nodes[0], &deregister_nodes_keys[i]);
     if (node_status.registered) total_registered_daemons++;
   }
 
   EXPECT(result,
-         total_registered_daemons >= num_register_daemons && total_registered_daemons < NUM_DAEMONS,
-         "We EXPECT atleast some daemons to deregister. It's possible that not all deregistered if they didn't get assigned a quorum. total_registered_daemons: %d, NUM_DAEMONS: %d",
-         total_registered_daemons, NUM_DAEMONS);
+         total_registered_daemons >= nodes.len && total_registered_daemons < TOTAL_DAEMONS,
+         "We EXPECT atleast some daemons to deregister. It's possible that not all deregistered if they didn't get assigned a quorum. total_registered_daemons: %d, TOTAL_DAEMONS: %d",
+         total_registered_daemons, TOTAL_DAEMONS);
 
   return result;
 }

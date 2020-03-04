@@ -89,6 +89,11 @@ struct loki_string
     if (len != other.len) return false;
     return (strcmp(str, other.str) == 0);
   }
+
+  bool operator!=(loki_string const &other) const
+  {
+      return !(*this == other);
+  }
 };
 #define LOKI_STRING(str) {str, LOKI_CHAR_COUNT(str)}
 
@@ -122,6 +127,11 @@ struct loki_fixed_string
   {
     if (len != other.len) return false;
     return (memcmp(str, other.str, other.len) == 0);
+  }
+
+  bool operator!=(loki_fixed_string const &other) const
+  {
+    return !(*this == other);
   }
 
   loki_string to_string() const
@@ -212,6 +222,8 @@ using loki_snode_key                                        = loki_fixed_string<
 using loki_payment_id16                                     = loki_fixed_string<16  + 1>;
 using loki_payment_id64                                     = loki_fixed_string<64  + 1>;
 using loki_hash64                                           = loki_fixed_string<64  + 1>;
+using loki_hex64                                            = loki_fixed_string<64  + 1>;
+using loki_hash128                                          = loki_fixed_string<128  + 1>;
 
 struct loki_addr
 {

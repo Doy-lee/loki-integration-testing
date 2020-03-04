@@ -436,6 +436,7 @@ wallet_t create_and_start_wallet(loki_nettype type, start_wallet_params params, 
 
   loki_fixed_string<128> name("%s%d", WALLET_IPC_NAME, result.id);
   arg_buf.append("--integration-test-pipe-name %s ", name.str);
+  arg_buf.append("--log-level 1 ");
 
 #if 1
   loki_fixed_string<> cmd_buf = {};
@@ -789,22 +790,24 @@ int main(int argc, char **argv)
 #endif
 
   auto start_time = std::chrono::high_resolution_clock::now();
+
 #if 1
-
-  global_work_queue.jobs.push_back(daemon__checkpointing__deregister_non_participating_peer);
-  global_work_queue.jobs.push_back(daemon__checkpointing__new_peer_syncs_checkpoints);
-  global_work_queue.jobs.push_back(daemon__checkpointing__private_chain_reorgs_to_checkpoint_chain);
-
   // NOTE(doyle): Doesn't work
+  // global_work_queue.jobs.push_back(daemon__checkpointing__deregister_non_participating_peer);
+  // global_work_queue.jobs.push_back(daemon__checkpointing__new_peer_syncs_checkpoints);
+  // global_work_queue.jobs.push_back(daemon__checkpointing__private_chain_reorgs_to_checkpoint_chain);
   // global_work_queue.jobs.push_back(daemon__decommission__recommission_on_uptime_proof);
-
-  global_work_queue.jobs.push_back(daemon__deregistration__n_unresponsive_node);
+  // global_work_queue.jobs.push_back(daemon__deregistration__n_unresponsive_node);
 
   global_work_queue.jobs.push_back(daemon__prepare_registration__check_100_percent_operator_cut_stake);
   global_work_queue.jobs.push_back(daemon__prepare_registration__check_all_solo_stake_forms_valid_registration);
   global_work_queue.jobs.push_back(daemon__prepare_registration__check_solo_stake);
 
-  global_work_queue.jobs.push_back(wallet__buy_lns_mapping__session);
+  global_work_queue.jobs.push_back(wallet__lns_buy_mapping__session);
+  global_work_queue.jobs.push_back(wallet__lns_update_mapping__session);
+  global_work_queue.jobs.push_back(wallet__lns_update_mapping__session_multiple_owners);
+  global_work_queue.jobs.push_back(wallet__lns_print_owners_to_name);
+  global_work_queue.jobs.push_back(wallet__lns_print_name_to_owners);
 
   global_work_queue.jobs.push_back(wallet__print_locked_stakes__check_no_locked_stakes);
   global_work_queue.jobs.push_back(wallet__print_locked_stakes__check_shows_locked_stakes);
@@ -835,6 +838,11 @@ int main(int argc, char **argv)
 
   global_work_queue.jobs.push_back(v11__wallet__transfer__check_fee_amount_bulletproofs);
 #else
+  // global_work_queue.jobs.push_back(wallet__lns_buy_mapping__session);
+  // global_work_queue.jobs.push_back(wallet__lns_update_mapping__session);
+  // global_work_queue.jobs.push_back(wallet__lns_update_mapping__session_multiple_owners);
+  // global_work_queue.jobs.push_back(wallet__lns_print_owners_to_name);
+  // global_work_queue.jobs.push_back(wallet__lns_print_name_to_owners);
 #endif
 
   std::vector<std::thread> threads;

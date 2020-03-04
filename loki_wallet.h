@@ -40,6 +40,21 @@ struct wallet_locked_stakes
   int                      blacklisted_stakes_len;
 };
 
+struct wallet_lns_entry
+{
+  loki_hex64              owner;
+  loki_fixed_string<128>  type;
+  uint64_t                height;
+  loki_fixed_string<256>  name;
+  loki_fixed_string<66+1> value;
+  loki_transaction_id     prev_txid;
+};
+
+struct wallet_lns_entries
+{
+  wallet_lns_entry array[64];
+  int array_len;
+};
 
 // TODO(doyle): This function should probably run by default since you almost always want it
 void                 wallet_set_default_testing_settings (wallet_t *wallet, wallet_params const params = {});
@@ -66,5 +81,10 @@ uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, daem
 // TODO(doyle): This should return the transaction
 bool                 wallet_request_stake_unlock         (wallet_t *wallet, loki_snode_key const *snode_key, uint64_t *unlock_height = nullptr);
 bool                 wallet_register_service_node        (wallet_t *wallet, char const *registration_cmd, loki_transaction *tx = nullptr);
-itest_ipc_result     wallet_buy_lns_mapping              (wallet_t *wallet, loki_string *owner, loki_string name, loki_string value, loki_transaction *tx = nullptr);
+itest_ipc_result     wallet_lns_buy_mapping              (wallet_t *wallet, loki_string const *owner, loki_string const *backup_owner, loki_string type, loki_string name, loki_string value, loki_transaction *tx = nullptr);
+itest_ipc_result     wallet_lns_update_mapping           (wallet_t *wallet, loki_string type, loki_string name, loki_string const *value, loki_string const *owner, loki_string const *backup_owner, loki_string const *signature = nullptr, loki_transaction *tx = nullptr);
+wallet_lns_entries   wallet_lns_print_owners_to_name     (wallet_t *wallet, loki_string const *owner = nullptr);
+wallet_lns_entries   wallet_lns_print_name_to_owner      (wallet_t *wallet, loki_string const *type, loki_string name);
+bool                 wallet_lns_make_update_mapping_signature(wallet_t *wallet, loki_string name, loki_string const *value, loki_string const *owner, loki_string const *backup_owner, loki_hash128 *signature);
+loki_hash64          wallet_spendkey                     (wallet_t *wallet, loki_hash64 *public_key);
 #endif

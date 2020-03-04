@@ -1,8 +1,23 @@
-#define EXPECT_STR(test_result_var, src, EXPECT_str, fmt, ...)                                                         \
+#define EXPECT_STR(test_result_var, src, EXPECT_str)                                                                   \
+  if (src != EXPECT_str)                                                                                               \
+  {                                                                                                                    \
+    test_result_var.failed   = true;                                                                                   \
+    test_result_var.fail_msg = loki_fixed_string<>("%s:%d [" #src " != " #EXPECT_str "] \"%.*s\" != \"%.*s\"",                 \
+                                                   __FILE__,                                                           \
+                                                   __LINE__,                                                           \
+                                                   src.len,                                                            \
+                                                   src.str,                                                            \
+                                                   EXPECT_str.len,                                                     \
+                                                   EXPECT_str.str);                                                    \
+    return test_result_var;                                                                                            \
+  }
+
+#define EXPECT_STR_MSG(test_result_var, src, EXPECT_str, fmt, ...)                                                     \
   if (!str_match(src, EXPECT_str))                                                                                     \
   {                                                                                                                    \
     test_result_var.failed   = true;                                                                                   \
-    test_result_var.fail_msg = loki_fixed_string<>("%s:%d [%s != %s] " fmt, __FILE__, __LINE__, src, EXPECT_str, ##__VA_ARGS__);    \
+    test_result_var.fail_msg = loki_fixed_string<>(                                                                    \
+        "%s:%d [" #src " != " #EXPECT_str "] %s != %s" fmt, __FILE__, __LINE__, src, EXPECT_str, ##__VA_ARGS__);               \
     return test_result_var;                                                                                            \
   }
 
@@ -360,7 +375,7 @@ test_result wallet__sweep_all()
   return result;
 }
 
-test_result wallet__buy_lns_mapping__session()
+test_result wallet__lns_buy_mapping__session()
 {
   test_result result = {};
   INITIALISE_TEST_CONTEXT(result);
@@ -373,63 +388,511 @@ test_result wallet__buy_lns_mapping__session()
   daemon_t *daemon = &environment.daemons[0];
 
   // Valid mapping
-  loki_string name = LOKI_STRING("MySessionName");
+  loki_string const type        = LOKI_STRING("session");
+  loki_string const valid_value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
   {
-    loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
-    itest_ipc_result ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
-    EXPECT(result,
-           ipc_return,
-           "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s\n\tThe last received output was=\"%.*s\"",
-           value.len,
-           value.str,
-           name.len,
-           name.str,
-           ipc_return.output.size(),
-           ipc_return.output.data());
+    loki_string name = LOKI_STRING("MySessionName");
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s",
+                          valid_value.len,
+                          valid_value.str,
+                          name.len,
+                          name.str);
 
     daemon_mine_n_blocks(daemon, wallet, 1);
 
     // Can't repurchase the same mapping that is already taken
-    ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
+    ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
     EXPECT_IPC_RESULT_MSG(result,
                           !ipc_return,
                           "Can't purchase a Session mapping that already exists value=%.*s, name=%.*s",
-                          value.len,
-                          value.str,
+                          valid_value.len,
+                          valid_value.str,
                           name.len,
                           name.str);
   }
 
-  // Invalid mapping, same name but new value is invalid
-  {
-    loki_string value = LOKI_STRING("0526521d7628d7a8e3278ad7a053b28f0c72f7c85787e6c40fcb98ff8d1aa8cbd4");
-    itest_ipc_result ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
-    EXPECT(result,
-           !ipc_return,
-           "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s\n\tThe last received output was=\"%.*s\"",
-           value.len,
-           value.str,
-           name.len,
-           name.str,
-           ipc_return.output.size(),
-           ipc_return.output.data());
-  }
-
-  // Invalid mapping, needs to start with 05
+  // Invalid mapping, value needs to start with 05
   {
     loki_string value = LOKI_STRING("0x2618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
     loki_string name  = LOKI_STRING("MySessionName");
-    itest_ipc_result ipc_return = wallet_buy_lns_mapping(wallet, nullptr /*owner*/, name, value);
-    EXPECT(result,
-           !ipc_return,
-           "Can't purchase a Session mapping value=%.*s, name=%.*s because the value is not prefixed with 05\n\tThe last received output was=\"%.*s\"",
-           value.len,
-           value.str,
-           name.len,
-           name.str,
-           ipc_return.output.size(),
-           ipc_return.output.data());
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        !ipc_return,
+        "Can't purchase a Session mapping value=%.*s, name=%.*s because the value is not prefixed with 05",
+        value.len,
+        value.str,
+        name.len,
+        name.str);
   }
+
+  // Invalid mapping, empty name
+  {
+    loki_string name            = LOKI_STRING("");
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        !ipc_return,
+        "Can't purchase a Session mapping value=%.*s, name=%.*s because the name is empty",
+        valid_value.len,
+        valid_value.str,
+        name.len,
+        name.str);
+  }
+
+  // Valid mapping, multi word name
+  {
+    loki_string name            = LOKI_STRING("A Name With Multi Words AND a Quote \"");
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        ipc_return,
+        "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+        valid_value.len,
+        valid_value.str,
+        name.len,
+        name.str);
+  }
+
+  // Valid mapping, multi word name with double quotes
+  {
+    loki_string name            = LOKI_STRING("\"A Name With Multi Words AND a Quote \"");
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        ipc_return,
+        "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+        valid_value.len,
+        valid_value.str,
+        name.len,
+        name.str);
+  }
+
+  // Valid mapping, specify a custom owner
+  {
+    loki_string const owner     = LOKI_STRING("91c2cb3d0d30d8a3a16eb30a06c38346d5b8313f374a4bdf64d1da099b28370e");
+    loki_string const name      = LOKI_STRING("SimpleName");
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, &owner, nullptr /*backup_owner*/, type, name, valid_value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        ipc_return,
+        "Should be able to purchase a Session mapping value=%.*s, name=%.*s, owner=%.*s",
+        valid_value.len,
+        valid_value.str,
+        name.len,
+        name.str,
+        owner.len,
+        owner.str
+        );
+  }
+
+  // TODO(doyle): Invalid mapping, use invalid type, but type is not supported yet in Loki
+  return result;
+}
+
+test_result wallet__lns_print_owners_to_name()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  wallet_t *wallet = &environment.wallets[0];
+  daemon_t *daemon = &environment.daemons[0];
+
+  // Valid mapping custom owner
+  loki_string const type         = LOKI_STRING("session");
+  loki_string const value        = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+  loki_string const custom_owner = LOKI_STRING("91c2cb3d0d30d8a3a16eb30a06c38346d5b8313f374a4bdf64d1da099b28370e");
+  loki_string const null_hash    = LOKI_STRING("0000000000000000000000000000000000000000000000000000000000000000");
+  loki_string const name1        = LOKI_STRING("SimpleName");
+  {
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, &custom_owner, nullptr /*backup_owner*/, type, name1, value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        ipc_return,
+        "Should be able to purchase a Session mapping value=%.*s, name1=%.*s, owner=%.*s",
+        value.len,
+        value.str,
+        name1.len,
+        name1.str,
+        custom_owner.len,
+        custom_owner.str
+        );
+  }
+
+  daemon_mine_n_blocks(daemon, wallet, 1);
+  uint64_t register_height = daemon_status(daemon).height - 1;
+
+  // Check wallet query returns custom owner mapping
+  {
+    wallet_lns_entries entries = wallet_lns_print_owners_to_name(wallet, &custom_owner);
+    EXPECT(result, entries.array_len == 1, "Expected one custom owner, LNS entry");
+
+    {
+      wallet_lns_entry const *entry = entries.array + 0;
+      EXPECT_STR(result, entry->owner.to_string(), custom_owner);
+      EXPECT_STR(result, entry->type.to_string(), type);
+      EXPECT(result, entry->height == register_height, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, register_height);
+      EXPECT_STR(result, entry->name.to_string(), name1);
+      EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+    }
+  }
+
+  // Valid mapping 2
+  loki_transaction tx = {};
+  loki_string name2 = LOKI_STRING("SimpleName2");
+  {
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name2, value, &tx);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+                          value.len,
+                          value.str,
+                          name2.len,
+                          name2.str);
+  }
+
+  // Valid mapping 3, multi word name
+  loki_string name3 = LOKI_STRING("A Name With Multi Words AND a Quote \"");
+  {
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name3, value);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+                          value.len,
+                          value.str,
+                          name3.len,
+                          name3.str);
+  }
+
+  daemon_mine_n_blocks(daemon, wallet, 1);
+  uint64_t register_height2 = daemon_status(daemon).height - 1;
+
+  // Check wallet query returns my LNS mappings
+  {
+    wallet_lns_entries entries = wallet_lns_print_owners_to_name(wallet);
+    EXPECT(result, entries.array_len == 2, "Expected two LNS entries, we bought 2 earlier in tests");
+
+    {
+      wallet_lns_entry const *entry = entries.array + 0;
+      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
+      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
+      EXPECT_STR(result, entry->type.to_string(), type);
+      EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
+      EXPECT_STR(result, entry->name.to_string(), name2);
+      EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+    }
+
+    {
+      wallet_lns_entry const *entry = entries.array + 1;
+      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
+      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
+      EXPECT_STR(result, entry->type.to_string(), type);
+      EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
+      EXPECT_STR(result, entry->name.to_string(), name3);
+      EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+    }
+  }
+
+  // Update valid mapping 2
+  loki_string new_value = LOKI_STRING("0508ff156d993012b0bdf2816c4bee47c9bbc7930593b70ee02574edddf15ee933");
+  {
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet, type, name2, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Should be able to update pre-existing Session mapping value=%.*s, name=%.*s",
+                          new_value.len,
+                          new_value.str,
+                          name2.len,
+                          name2.str);
+  }
+
+  daemon_mine_n_blocks(daemon, wallet, 1);
+
+  // Check wallet query returns my LNS mappings
+  {
+    wallet_lns_entries entries = wallet_lns_print_owners_to_name(wallet);
+    EXPECT(result, entries.array_len == 2, "Expected two LNS entries, we bought 2 earlier in tests");
+
+    {
+      wallet_lns_entry const *entry = entries.array + 0;
+      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
+      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
+      EXPECT_STR(result, entry->type.to_string(), type);
+      EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
+      EXPECT_STR(result, entry->name.to_string(), name2);
+      EXPECT_STR(result, entry->value.to_string(), new_value);
+      EXPECT_STR(result, entry->prev_txid, tx.id);
+    }
+
+    {
+      wallet_lns_entry const *entry = entries.array + 1;
+      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
+      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
+      EXPECT_STR(result, entry->type.to_string(), type);
+      EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
+      EXPECT_STR(result, entry->name.to_string(), name3);
+      EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+    }
+  }
+
+  return result;
+}
+
+test_result wallet__lns_print_name_to_owners()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 1 /*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  wallet_t *wallet = &environment.wallets[0];
+  daemon_t *daemon = &environment.daemons[0];
+
+  // Wallet1 Buys Mapping
+  loki_string const type      = LOKI_STRING("session");
+  loki_string const value     = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+  loki_string const null_hash = LOKI_STRING("0000000000000000000000000000000000000000000000000000000000000000");
+  loki_string const name1     = LOKI_STRING("SimpleName");
+  {
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name1, value);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+                          value.len,
+                          value.str,
+                          name1.len,
+                          name1.str);
+  }
+
+  daemon_mine_n_blocks(daemon, wallet, 1);
+  uint64_t height1 = daemon_status(daemon).height - 1;
+
+  // Check wallet query returns custom owner mapping
+  {
+    wallet_lns_entries entries = wallet_lns_print_name_to_owner(wallet, &type, name1);
+    EXPECT(result, entries.array_len == 1, "Expected one LNS entry");
+    {
+      wallet_lns_entry const *entry = entries.array + 0;
+      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
+      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
+      EXPECT_STR(result, entry->type.to_string(), type);
+      EXPECT(result, entry->height == height1, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, height1);
+      EXPECT_STR(result, entry->name.to_string(), name1);
+      EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+    }
+  }
+
+  return result;
+}
+
+test_result wallet__lns_update_mapping__session()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 2 /*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  daemon_t *daemon = &environment.daemons[0];
+
+  wallet_t *wallet1 = &environment.wallets[0];
+
+  // Valid mapping
+  loki_string type  = LOKI_STRING("session");
+  loki_string name  = LOKI_STRING("MySessionName");
+  loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+  {
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet1, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, value);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s",
+                          value.len,
+                          value.str,
+                          name.len,
+                          name.str);
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // Invalid update, try updating a non-existent mapping
+  {
+    loki_string new_name        = LOKI_STRING("MySessionName_NOT_REGISTERED_YET");
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, new_name, &value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, !ipc_return, "Can't update a non existent mapping, name=%.*s", new_name.len, new_name.str);
+  }
+
+  // Wallet not owner, tries to update mapping
+  loki_string new_value = LOKI_STRING("0526521d7628d7a8e3278ad7a053b28f0c72f7c85787e6c40fcb98ff8d1aa8cbd4");
+  {
+    wallet_t *wallet2           = &environment.wallets[1];
+    loki_string new_name        = LOKI_STRING("MySessionName_NOT_REGISTERED_YET");
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet2, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, !ipc_return, "Can't update a non existent mapping, name=%.*s", new_name.len, new_name.str);
+  }
+
+  // Invalid signature, too short
+  {
+    loki_fixed_string<1> signature_buffer = {};
+    memset(signature_buffer.str, 'a', sizeof(signature_buffer.str));
+    signature_buffer.len                  = sizeof(signature_buffer.str);
+    loki_string signature                 = signature_buffer.to_string();
+
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, &signature /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, !ipc_return, "Can't update mapping with a signature too short");
+  }
+
+  // Invalid signature, too long
+  {
+    loki_fixed_string<256> signature_buffer = {};
+    memset(signature_buffer.str, 'a', sizeof(signature_buffer.str));
+    signature_buffer.len = sizeof(signature_buffer.str);
+
+    loki_string signature       = signature_buffer.to_string();
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, &signature);
+    EXPECT_IPC_RESULT_MSG(result, !ipc_return, "Can't update mapping with a signature too long");
+  }
+
+  // Can update mapping with new value, don't specify signature let the wallet derive it for us
+  {
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, ipc_return, "We should be able to update the mapping, we let the wallet derive a valid signature for us");
+  }
+  return result;
+}
+
+test_result wallet__lns_update_mapping__session_multiple_owners()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 4 /*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  daemon_t *daemon = &environment.daemons[0];
+
+  wallet_t *wallet1 = &environment.wallets[0];
+  wallet_t *wallet2 = &environment.wallets[1];
+  wallet_t *wallet3 = &environment.wallets[2];
+  wallet_t *wallet4 = &environment.wallets[3];
+
+  // Valid mapping
+  loki_string type  = LOKI_STRING("session");
+  loki_string name  = LOKI_STRING("MySessionName");
+  loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+
+  loki_hash64 owner_fstr = {}, backup_owner_fstr = {};
+  wallet_spendkey(wallet1, &owner_fstr);
+  wallet_spendkey(wallet2, &backup_owner_fstr);
+
+  loki_string owner        = owner_fstr.to_string();
+  loki_string backup_owner = backup_owner_fstr.to_string();
+  {
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet1, &owner, &backup_owner, type, name, value);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Failed to purchase ordinary Session mapping value=%.*s, name=%.*s",
+                          value.len,
+                          value.str,
+                          name.len,
+                          name.str);
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Owner 1 tries to update
+  {
+    loki_string new_value =  LOKI_STRING("0508d00415a23e608d5718a45f23b57adf8cf0e7781b2b67b38225aaea27394805");
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Owner 1 failedd to update Session mapping new_value=%.*s, name=%.*s",
+                          new_value.len,
+                          new_value.str,
+                          name.len,
+                          name.str);
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Owner 2 tries to update
+  {
+    loki_string new_value =  LOKI_STRING("053ef89b317763451baf8883be7d8582a012bcab221cd3ac24a4095d20d2a2025a");
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet2, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Owner 2 failed to update, they are the backup owner, it should work. Session mapping new_value=%.*s, name=%.*s",
+                          new_value.len,
+                          new_value.str,
+                          name.len,
+                          name.str);
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Wallet 3 updates on behalf by getting wallet 2 to generate a signature
+  {
+    loki_string new_value = LOKI_STRING("05a205b9f6ab38b068789bc71925befad9c6a2f81a65ae5018fa7fd8378795f22b");
+    loki_hash128 signature_fstr;
+    EXPECT(result, wallet_lns_make_update_mapping_signature(wallet2, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, &signature_fstr), "Failed to generate the update signature for LNS");
+
+    loki_string signature = signature_fstr.to_string();
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet3, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, &signature);
+    EXPECT_IPC_RESULT_MSG(result,
+                          ipc_return,
+                          "Owner 3 failed to update, on behalf of owner 2 using their signature, it should work. Session mapping new_value=%.*s, name=%.*s",
+                          new_value.len,
+                          new_value.str,
+                          name.len,
+                          name.str);
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Owner 1 updates the owner and backup owner to wallet 3 and 4 respectively
+  {
+    loki_hash64 new_owner_fstr = {}, new_backup_owner_fstr = {};
+    wallet_spendkey(wallet3, &new_owner_fstr);
+    wallet_spendkey(wallet4, &new_backup_owner_fstr);
+
+    loki_string new_owner        = new_owner_fstr.to_string();
+    loki_string new_backup_owner = new_backup_owner_fstr.to_string();
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, nullptr /*value*/, &new_owner /*owner*/, &new_backup_owner /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, ipc_return, "Owner 1 failed to update Session mapping to have 2 new owners");
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Owner 3 updates just the value
+  {
+    loki_string new_value       = LOKI_STRING("05c46758f1bf161deefaa7d876ef297292d3a17295653046a173fb5c5bfc7df755");
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet3, type, name, &new_value /*value*/, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, ipc_return, "Owner 3 failed to update Session mapping to have a new underlying value");
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Owner 4 who is backup, gives up mapping back to owner 1 and 2 AND also updates the underlying value to the original value as well
+  {
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet4, type, name, &value /*value*/, &owner /*owner*/, &backup_owner /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, ipc_return, "Owner 4 failed to update Session mapping back to the original owners");
+    daemon_mine_n_blocks(daemon, wallet1, 1);
+  }
+
+  // NOTE: Owner 1 tries to make a update TX, but does not specify any field to update. This should be disallowed
+  {
+    itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, nullptr /*value*/, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
+    EXPECT_IPC_RESULT_MSG(result, !ipc_return, "Owner 1 tries to update mapping but doesnt specify any field to update so it should fail");
+  }
+
   return result;
 }
 
@@ -776,6 +1239,7 @@ test_result daemon__deregistration__n_unresponsive_node()
   start_daemon_params daemon_params = {};
   daemon_params.fixed_difficulty    = 1;
   daemon_params.load_latest_hardfork_versions();
+  daemon_params.keep_terminal_open = true;
 
   int const NUM_DAEMONS                  = (LOKI_STATE_CHANGE_QUORUM_SIZE * 2);
   loki_snode_key snode_keys[NUM_DAEMONS] = {};
@@ -958,10 +1422,10 @@ test_result daemon__prepare_registration__check_all_solo_stake_forms_valid_regis
     char const *wallet_addr       = str_skip_to_next_word_inplace(&prev);
     char const *addr1_portions    = str_skip_to_next_word_inplace(&prev);
 
-    EXPECT_STR(result, register_str,      "register_service_node", "Could not find expected str in: %s", register_str);
-    EXPECT_STR(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", register_str);
-    EXPECT_STR(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", register_str);
-    EXPECT_STR(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", register_str);
+    EXPECT_STR_MSG(result, register_str,      "register_service_node", "Could not find expected str in: %s", register_str);
+    EXPECT_STR_MSG(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", register_str);
+    EXPECT_STR_MSG(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", register_str);
+    EXPECT_STR_MSG(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", register_str);
   }
   return result;
 }
@@ -1005,10 +1469,10 @@ test_result daemon__prepare_registration__check_solo_stake()
   char const *wallet_addr       = str_skip_to_next_word_inplace(&prev);
   char const *addr1_portions    = str_skip_to_next_word_inplace(&prev);
 
-  EXPECT_STR(result, register_str,      "register_service_node", "Could not find expected str in: %s", register_str);
-  EXPECT_STR(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", register_str);
-  EXPECT_STR(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", register_str);
-  EXPECT_STR(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", register_str);
+  EXPECT_STR_MSG(result, register_str,      "register_service_node", "Could not find expected str in: %s", register_str);
+  EXPECT_STR_MSG(result, operator_portions, "18446744073709551612",  "Could not find expected str in: %s", register_str);
+  EXPECT_STR_MSG(result, wallet_addr,       wallet1,                 "Could not find expected str in: %s", register_str);
+  EXPECT_STR_MSG(result, addr1_portions,    "18446744073709551612",  "Could not find expected str in: %s", register_str);
   return result;
 }
 
@@ -1058,12 +1522,12 @@ test_result daemon__prepare_registration__check_100_percent_operator_cut_stake()
   char const *wallet2_addr     = str_skip_to_next_word_inplace(&prev);
   char const *wallet2_portions = str_skip_to_next_word_inplace(&prev);
 
-  EXPECT_STR(result, register_str,     "register_service_node", "Could not find expected str in: ", register_str);
-  EXPECT_STR(result, operator_cut,     "18446744073709551612",  "Could not find expected str in: ", register_str);
-  EXPECT_STR(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", register_str);
-  EXPECT_STR(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", register_str); // exactly 50% of staking portions
-  EXPECT_STR(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", register_str);
-  EXPECT_STR(result, wallet2_portions, "4611686018427387903",   "Could not find expected str in: ", register_str); // exactly 25% of staking portions
+  EXPECT_STR_MSG(result, register_str,     "register_service_node", "Could not find expected str in: ", register_str);
+  EXPECT_STR_MSG(result, operator_cut,     "18446744073709551612",  "Could not find expected str in: ", register_str);
+  EXPECT_STR_MSG(result, wallet1_addr,     wallet1,                 "Could not find expected str in: ", register_str);
+  EXPECT_STR_MSG(result, wallet1_portions, "9223372036854775806",   "Could not find expected str in: ", register_str); // exactly 50% of staking portions
+  EXPECT_STR_MSG(result, wallet2_addr,     wallet2,                 "Could not find expected str in: ", register_str);
+  EXPECT_STR_MSG(result, wallet2_portions, "4611686018427387903",   "Could not find expected str in: ", register_str); // exactly 25% of staking portions
 
   return result;
 }

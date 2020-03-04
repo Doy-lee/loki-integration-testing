@@ -357,7 +357,7 @@ FILE_SCOPE itest_ipc_result wallet__submit_and_parse_transfer_output(itest_ipc *
   {
     assert(str_find(ipc_result.output.c_str(), "Transaction successfully submitted, transaction <"));
     char const *id_start = str_find(ipc_result.output.c_str(), "<");
-    tx->id.append("%.*s", tx->id.max(), ++id_start);
+    tx->id.append("%.*s", tx->id.max()-1, ++id_start);
   }
 
   return ipc_result;
@@ -471,13 +471,222 @@ bool wallet_register_service_node(wallet_t *wallet, char const *registration_cmd
   return true;
 }
 
-itest_ipc_result wallet_buy_lns_mapping(wallet_t *wallet, loki_string *owner, loki_string name, loki_string value, loki_transaction *tx)
+itest_ipc_result wallet_lns_buy_mapping(wallet_t *wallet, loki_string const *owner, loki_string const *backup_owner, loki_string type, loki_string name, loki_string value, loki_transaction *tx)
 {
-  loki_fixed_string<256> cmd("buy_lns_mapping ");
-  if (owner) cmd.append("%.*s ", owner->len, owner->str);
-  cmd.append("\"%.*s\" %.*s", name.len, name.str, value.len, value.str);
+  (void)type; // TODO: Type not support yet, we default to Session
+  loki_fixed_string<1024> cmd("lns_buy_mapping ");
+  cmd.append("\"%.*s\" %.*s ", name.len, name.str, value.len, value.str);
+  if (owner) cmd.append("owner=%.*s ", owner->len, owner->str);
+  if (backup_owner) cmd.append("backup_owner=%.*s ", backup_owner->len, backup_owner->str);
   loki_addr address       = {};
   itest_ipc_result result = wallet_address(wallet, 0, &address);
   if (result) result = wallet__submit_and_parse_transfer_output(&wallet->ipc, cmd.to_string(), address.buf.str, tx);
+  return result;
+}
+
+itest_ipc_result wallet_lns_update_mapping(wallet_t *wallet, loki_string type, loki_string name, loki_string const *value, loki_string const *owner, loki_string const *backup_owner, loki_string const *signature, loki_transaction *tx)
+{
+  (void)type; // TODO: Type not support yet, we default to Session
+
+  loki_fixed_string<1024> cmd("lns_update_mapping ");
+  if (value) cmd.append("value=%.*s ", value->len, value->str);
+  if (owner) cmd.append("owner=%.*s ", owner->len, owner->str);
+  if (backup_owner) cmd.append("backup_owner=%.*s ", backup_owner->len, backup_owner->str);
+  if (signature) cmd.append("signature=%.*s ", signature->len, signature->str);
+  cmd.append("\"%.*s\"", name.len, name.str);
+
+  loki_addr address       = {};
+  itest_ipc_result result = wallet_address(wallet, 0, &address);
+  if (result) result = wallet__submit_and_parse_transfer_output(&wallet->ipc, cmd.to_string(), address.buf.str, tx);
+  return result;
+}
+
+wallet_lns_entries wallet_lns_print_owners_to_name(wallet_t *wallet, loki_string const *owner)
+{
+  loki_fixed_string<1024> cmd("lns_print_owners_to_names ");
+  if (owner) cmd.append("%.*s ", owner->len, owner->str);
+
+  wallet_lns_entries result = {};
+  itest_ipc_result ipc_result = itest_write_then_read_stdout(&wallet->ipc, cmd.str);
+  if (ipc_result)
+  {
+    loki_string owner_str     = LOKI_STRING("owner=");
+    loki_string type_str      = LOKI_STRING("type=");
+    loki_string height_str    = LOKI_STRING("height=");
+    loki_string name_str      = LOKI_STRING("name=\"");
+    loki_string value_str     = LOKI_STRING("value=");
+    loki_string prev_txid_str = LOKI_STRING("prev_txid=");
+
+    char const *ptr        = ipc_result.output.c_str();
+    char const *output_end = ipc_result.output.c_str() + ipc_result.output.size();
+    for (;;)
+    {
+      wallet_lns_entry entry = {};
+
+      ptr = str_find(ptr, owner_str.str);
+      if (!ptr) break;
+
+      ptr += owner_str.len;
+      char const *end = str_find(ptr, ",");
+      isize len       = (ptrdiff_t)(end - ptr);
+      assert(len == entry.owner.max() - 1);
+      entry.owner.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, type_str.str);
+      ptr += type_str.len;
+      end = str_find(ptr, ",");
+      len = (ptrdiff_t)(end - ptr);
+      assert(len <= entry.type.max() - 1);
+      entry.type.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, height_str.str);
+      ptr += height_str.len;
+      entry.height = atoi(ptr);
+
+      ptr = str_find(ptr, name_str.str);
+      ptr += name_str.len;
+      end = str_find(ptr, "\",");
+      len = (ptrdiff_t)(end - ptr);
+      assert(len <= entry.name.max() - 1);
+      entry.name.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, value_str.str);
+      ptr += value_str.len;
+      end = str_find(ptr, ",");
+      len = (ptrdiff_t)(end - ptr);
+      assert(len == entry.value.max() - 1);
+      entry.value.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, prev_txid_str.str);
+      ptr += prev_txid_str.len;
+
+      isize remaining = (isize)(output_end - ptr);
+      if (remaining >= (entry.prev_txid.max() - 1))
+        entry.prev_txid.append("%.*s", (entry.prev_txid.max() - 1), ptr);
+
+      result.array[result.array_len++] = entry;
+    }
+  }
+  return result;
+}
+
+wallet_lns_entries wallet_lns_print_name_to_owner(wallet_t *wallet, loki_string const *type, loki_string name)
+{
+  loki_fixed_string<1024> cmd("lns_print_name_to_owners ");
+  if (type) cmd.append("type=%.*s ", type->len, type->str);
+  cmd.append("\"%.*s\" ", name.len, name.str);
+
+  wallet_lns_entries result = {};
+  itest_ipc_result ipc_result = itest_write_then_read_stdout(&wallet->ipc, cmd.str);
+  if (ipc_result)
+  {
+    loki_string name_str      = LOKI_STRING("name=\"");
+    loki_string owner_str     = LOKI_STRING("owner=");
+    loki_string type_str      = LOKI_STRING("type=");
+    loki_string height_str    = LOKI_STRING("height=");
+    loki_string value_str     = LOKI_STRING("value=");
+    loki_string prev_txid_str = LOKI_STRING("prev_txid=");
+
+    char const *ptr        = ipc_result.output.c_str();
+    char const *output_end = ipc_result.output.c_str() + ipc_result.output.size();
+    for (;;)
+    {
+      wallet_lns_entry entry = {};
+
+      ptr = str_find(ptr, name_str.str);
+      if (!ptr) break;
+
+      ptr += name_str.len;
+      char const *end = str_find(ptr, "\",");
+      isize len = (ptrdiff_t)(end - ptr);
+      assert(len <= entry.name.max() - 1);
+      entry.name.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, type_str.str);
+      ptr += type_str.len;
+      end = str_find(ptr, ",");
+      len = (ptrdiff_t)(end - ptr);
+      assert(len <= entry.type.max() - 1);
+      entry.type.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, owner_str.str);
+      ptr += owner_str.len;
+      end = str_find(ptr, ",");
+      len = (ptrdiff_t)(end - ptr);
+      assert(len == entry.owner.max() - 1);
+      entry.owner.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, height_str.str);
+      ptr += height_str.len;
+      entry.height = atoi(ptr);
+
+      ptr = str_find(ptr, value_str.str);
+      ptr += value_str.len;
+      end = str_find(ptr, ",");
+      len = (ptrdiff_t)(end - ptr);
+      assert(len == entry.value.max() - 1);
+      entry.value.append("%.*s", len, ptr);
+
+      ptr = str_find(ptr, prev_txid_str.str);
+      ptr += prev_txid_str.len;
+
+      isize remaining = (isize)(output_end - ptr);
+      if (remaining >= (entry.prev_txid.max() - 1))
+        entry.prev_txid.append("%.*s", (entry.prev_txid.max() - 1), ptr);
+
+      result.array[result.array_len++] = entry;
+    }
+  }
+
+  return result;
+}
+
+loki_hash64 wallet_spendkey(wallet_t *wallet, loki_hash64 *public_key)
+{
+  loki_hash64 result = {};
+  if (0) // TODO(loki): Not implemented yet/doesn't work
+  {
+    loki_string secret_label    = LOKI_STRING("secret: ");
+    itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&wallet->ipc, "spendkey", secret_label);
+    if (!ipc_result) return {};
+    char const *ptr = ipc_result.output.data();
+    char const *secret = str_find(ptr, secret_label.str) + secret_label.len;
+    result.append("%.*s", result.max() - 1, secret);
+  }
+
+  if (public_key)
+  {
+    loki_string public_label    = LOKI_STRING("public: ");
+    itest_ipc_result ipc_result = itest_write_then_read_stdout_until(&wallet->ipc, "spendkey", public_label);
+
+    char const *ptr        = ipc_result.output.data();
+    char const *public_str = str_find(ptr, public_label.str) + public_label.len;
+    public_key->append("%.*s", public_key->max() - 1, public_str);
+  }
+  return result;
+}
+
+bool wallet_lns_make_update_mapping_signature(wallet_t *wallet, loki_string name, loki_string const *value, loki_string const *owner, loki_string const *backup_owner, loki_hash128 *signature)
+{
+  LOCAL_PERSIST itest_read_possible_value const possible_values[] =
+  {
+    {LOKI_STRING("Error:"), true},
+    {LOKI_STRING("signature="), false},
+  };
+
+  loki_fixed_string<1024> cmd("lns_make_update_mapping_signature ");
+  if (value) cmd.append("value=%.*s ", value->len, value->str);
+  if (owner) cmd.append("owner=%.*s ", owner->len, owner->str);
+  if (backup_owner) cmd.append("backup_owner=%.*s ", backup_owner->len, backup_owner->str);
+  cmd.append("\"%.*s\"", name.len, name.str);
+
+  itest_ipc_result result = itest_write_then_read_stdout_until(&wallet->ipc, cmd.str, possible_values, LOKI_ARRAY_COUNT(possible_values));
+  if (result && signature)
+  {
+    char const *ptr = result.output.data();
+    loki_string label = LOKI_STRING("signature=");
+    char const *signature_str = str_find(ptr, label.str) + label.len;
+    signature->append("%.*s", signature->max() - 1, signature_str);
+  }
   return result;
 }

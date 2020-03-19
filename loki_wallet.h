@@ -42,11 +42,13 @@ struct wallet_locked_stakes
 
 struct wallet_lns_entry
 {
-  loki_hex64              owner;
+  loki_fixed_string<128>  owner;
+  loki_fixed_string<128>  backup_owner;
   loki_fixed_string<128>  type;
   uint64_t                height;
-  loki_fixed_string<256>  name;
+  loki_fixed_string<256>  name_hash;
   loki_fixed_string<66+1> value;
+  loki_fixed_string<256>  encrypted_value;
   loki_transaction_id     prev_txid;
 };
 
@@ -58,8 +60,10 @@ struct wallet_lns_entries
 
 // TODO(doyle): This function should probably run by default since you almost always want it
 void                 wallet_set_default_testing_settings (wallet_t *wallet, wallet_params const params = {});
-itest_ipc_result     wallet_address                      (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
+bool                 wallet_address_index                (wallet_t *wallet, int index, loki_addr *addr = nullptr); // Switch to subaddress at index
 bool                 wallet_address_new                  (wallet_t *wallet, loki_addr *addr);
+void                 wallet_account_new                  (wallet_t *wallet); // This switches to the new account automatically
+bool                 wallet_account_switch               (wallet_t *wallet, int index);
 uint64_t             wallet_balance                      (wallet_t *wallet, uint64_t *unlocked_balance);
 void                 wallet_exit                         (wallet_t *wallet);
 bool                 wallet_integrated_address           (wallet_t *wallet, loki_addr *addr);
@@ -72,8 +76,8 @@ bool                 wallet_status                       (wallet_t *wallet, uint
 
 // TODO(doyle): Need to support integrated address
 itest_ipc_result     wallet_sweep_all                    (wallet_t *wallet, char      const *dest, loki_transaction *tx);
-bool                 wallet_transfer                     (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
-bool                 wallet_transfer                     (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
+itest_ipc_result     wallet_transfer                     (wallet_t *wallet, char      const *dest, uint64_t amount, loki_transaction *tx); // TODO(doyle): We only support whole amounts. Not atomic units either.
+itest_ipc_result     wallet_transfer                     (wallet_t *wallet, loki_addr const *dest, uint64_t amount, loki_transaction *tx);
 
 // TODO(doyle): We should be able to roughly calculate how much blocks we need to mine
 uint64_t             wallet_mine_until_unlocked_balance  (wallet_t *wallet, daemon_t *daemon, uint64_t desired_unlocked_balance, int blocks_between_check = LOKI_CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW);

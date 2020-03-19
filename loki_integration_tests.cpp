@@ -112,6 +112,7 @@ void start_daemon_params::load_latest_hardfork_versions()
   this->add_hardfork(13, 6);
   this->add_hardfork(14, 7);
   this->add_hardfork(15, 8);
+  // this->add_hardfork(16, 9); TODO(doyle): 0 block reward makes this hard to work with
 }
 
 uint32_t const MSG_PACKET_MAGIC = 0x27befd93;
@@ -806,6 +807,7 @@ int main(int argc, char **argv)
   global_work_queue.jobs.push_back(wallet__lns_buy_mapping__session);
   global_work_queue.jobs.push_back(wallet__lns_update_mapping__session);
   global_work_queue.jobs.push_back(wallet__lns_update_mapping__session_multiple_owners);
+  global_work_queue.jobs.push_back(wallet__lns_update_mapping__session_subaddress_owners);
   global_work_queue.jobs.push_back(wallet__lns_print_owners_to_name);
   global_work_queue.jobs.push_back(wallet__lns_print_name_to_owners);
 
@@ -838,6 +840,7 @@ int main(int argc, char **argv)
 
   global_work_queue.jobs.push_back(v11__wallet__transfer__check_fee_amount_bulletproofs);
 #else
+  global_work_queue.jobs.push_back(wallet__lns_update_mapping__session_subaddress_owners);
 #endif
 
   std::vector<std::thread> threads;

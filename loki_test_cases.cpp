@@ -132,7 +132,7 @@ void helper_setup_blockchain_with_n_blocks(test_result const *context, daemon_t 
   *wallet                           = create_and_start_wallet(daemon_params.nettype, wallet_params, context->name.str);
   wallet_set_default_testing_settings(wallet);
   daemon_mine_n_blocks(daemon, wallet, num_blocks);
-  wallet_address(wallet, 0, addr);
+  wallet_address_index(wallet, 0, addr);
 }
 
 test_result helper_setup_blockchain_with_1_service_node(test_result const *context, daemon_t *daemon, wallet_t *wallet, loki_addr *addr, loki_snode_key *snode_key)
@@ -252,7 +252,7 @@ helper_blockchain_environment helper_setup_blockchain(test_result const *context
     wallet_params.daemon              = all_daemons + 0;
     *wallet = create_and_start_wallet(daemon_param.nettype, wallet_params, context->name.str);
     wallet_set_default_testing_settings(wallet);
-    assert(wallet_address(wallet, 0, wallet_addr));
+    assert(wallet_address_index(wallet, 0, wallet_addr));
   }
 
   // Mine the initial blocks in the blockchain
@@ -304,7 +304,7 @@ bool helper_setup_blockchain_with_n_service_nodes(test_result const *context,
     wallet_set_default_testing_settings(wallet);
   }
 
-  if (!wallet_address(wallet, 0, addr))
+  if (!wallet_address_index(wallet, 0, addr))
     return false;
 
   daemon_mine_n_blocks(daemons + 0, wallet, MIN_BLOCKS_IN_BLOCKCHAIN);
@@ -365,10 +365,7 @@ test_result wallet__sweep_all()
   wallet_t *wallet = &environment.wallets[0];
 
   loki_addr address = {};
-  {
-    itest_ipc_result ipc_result = wallet_address(wallet, 0, &address);
-    EXPECT_IPC_RESULT(result, ipc_result);
-  }
+  EXPECT(result, wallet_address_index(wallet, 0, &address), "Failed to query wallet address");
 
   itest_ipc_result ipc_result = wallet_sweep_all(wallet, address.buf.str, nullptr /*tx*/);
   EXPECT_IPC_RESULT(result, ipc_result);
@@ -443,38 +440,56 @@ test_result wallet__lns_buy_mapping__session()
         name.str);
   }
 
-  // Valid mapping, multi word name
+  // Invalid mapping, multi word name
   {
     loki_string name            = LOKI_STRING("A Name With Multi Words AND a Quote \"");
     itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
     EXPECT_IPC_RESULT_MSG(
         result,
-        ipc_return,
-        "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+        !ipc_return,
+        "Should not be able to purchase a Session mapping with spaces value=%.*s, name=%.*s",
         valid_value.len,
         valid_value.str,
         name.len,
         name.str);
   }
 
-  // Valid mapping, multi word name with double quotes
+  // Invalid mapping, multi word name with double quotes
   {
     loki_string name            = LOKI_STRING("\"A Name With Multi Words AND a Quote \"");
     itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name, valid_value);
     EXPECT_IPC_RESULT_MSG(
         result,
-        ipc_return,
-        "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
+        !ipc_return,
+        "Should not be able to purchase a Session mapping with spaces value=%.*s, name=%.*s",
         valid_value.len,
         valid_value.str,
         name.len,
         name.str);
   }
 
-  // Valid mapping, specify a custom owner
+  // Valid mapping, specify a Ed25519 owner
   {
     loki_string const owner     = LOKI_STRING("91c2cb3d0d30d8a3a16eb30a06c38346d5b8313f374a4bdf64d1da099b28370e");
     loki_string const name      = LOKI_STRING("SimpleName");
+    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, &owner, nullptr /*backup_owner*/, type, name, valid_value);
+    EXPECT_IPC_RESULT_MSG(
+        result,
+        ipc_return,
+        "Should be able to purchase a Session mapping value=%.*s, name=%.*s, owner=%.*s",
+        valid_value.len,
+        valid_value.str,
+        name.len,
+        name.str,
+        owner.len,
+        owner.str
+        );
+  }
+
+  // Valid mapping, specify a Wallet owner
+  {
+    loki_string const owner     = LOKI_STRING("L5LgmrPjHgQSpz4toew9KBhD33u5fFWGCDXPDzXK5Caffij3HvzLF8JUzv8uEtwNLWYSUtYu2afQaBvrbptw3ZqP2aJMCut");
+    loki_string const name      = LOKI_STRING("SimpleName1");
     itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, &owner, nullptr /*backup_owner*/, type, name, valid_value);
     EXPECT_IPC_RESULT_MSG(
         result,
@@ -509,7 +524,7 @@ test_result wallet__lns_print_owners_to_name()
   loki_string const type         = LOKI_STRING("session");
   loki_string const value        = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
   loki_string const custom_owner = LOKI_STRING("91c2cb3d0d30d8a3a16eb30a06c38346d5b8313f374a4bdf64d1da099b28370e");
-  loki_string const null_hash    = LOKI_STRING("0000000000000000000000000000000000000000000000000000000000000000");
+  loki_string const none         = LOKI_STRING("");
   loki_string const name1        = LOKI_STRING("SimpleName");
   {
     itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, &custom_owner, nullptr /*backup_owner*/, type, name1, value);
@@ -539,9 +554,9 @@ test_result wallet__lns_print_owners_to_name()
       EXPECT_STR(result, entry->owner.to_string(), custom_owner);
       EXPECT_STR(result, entry->type.to_string(), type);
       EXPECT(result, entry->height == register_height, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, register_height);
-      EXPECT_STR(result, entry->name.to_string(), name1);
-      EXPECT_STR(result, entry->value.to_string(), value);
-      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+      // EXPECT_STR(result, entry->name.to_string(), name1);
+      // EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), none);
     }
   }
 
@@ -559,47 +574,22 @@ test_result wallet__lns_print_owners_to_name()
                           name2.str);
   }
 
-  // Valid mapping 3, multi word name
-  loki_string name3 = LOKI_STRING("A Name With Multi Words AND a Quote \"");
-  {
-    itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name3, value);
-    EXPECT_IPC_RESULT_MSG(result,
-                          ipc_return,
-                          "Should be able to purchase a Session mapping value=%.*s, name=%.*s",
-                          value.len,
-                          value.str,
-                          name3.len,
-                          name3.str);
-  }
-
   daemon_mine_n_blocks(daemon, wallet, 1);
   uint64_t register_height2 = daemon_status(daemon).height - 1;
 
   // Check wallet query returns my LNS mappings
   {
     wallet_lns_entries entries = wallet_lns_print_owners_to_name(wallet);
-    EXPECT(result, entries.array_len == 2, "Expected two LNS entries, we bought 2 earlier in tests");
-
+    EXPECT(result, entries.array_len == 1, "Expected one LNS entries, we bought 1 earlier in tests");
     {
       wallet_lns_entry const *entry = entries.array + 0;
       // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
       // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
       EXPECT_STR(result, entry->type.to_string(), type);
       EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
-      EXPECT_STR(result, entry->name.to_string(), name2);
-      EXPECT_STR(result, entry->value.to_string(), value);
-      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
-    }
-
-    {
-      wallet_lns_entry const *entry = entries.array + 1;
-      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
-      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
-      EXPECT_STR(result, entry->type.to_string(), type);
-      EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
-      EXPECT_STR(result, entry->name.to_string(), name3);
-      EXPECT_STR(result, entry->value.to_string(), value);
-      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+      // EXPECT_STR(result, entry->name.to_string(), name2);
+      // EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), none);
     }
   }
 
@@ -621,28 +611,16 @@ test_result wallet__lns_print_owners_to_name()
   // Check wallet query returns my LNS mappings
   {
     wallet_lns_entries entries = wallet_lns_print_owners_to_name(wallet);
-    EXPECT(result, entries.array_len == 2, "Expected two LNS entries, we bought 2 earlier in tests");
-
+    EXPECT(result, entries.array_len == 1, "Expected two LNS entries, we bought 2 earlier in tests");
     {
       wallet_lns_entry const *entry = entries.array + 0;
       // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
       // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
       EXPECT_STR(result, entry->type.to_string(), type);
       EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
-      EXPECT_STR(result, entry->name.to_string(), name2);
-      EXPECT_STR(result, entry->value.to_string(), new_value);
+      // EXPECT_STR(result, entry->name.to_string(), name2);
+      // EXPECT_STR(result, entry->value.to_string(), new_value);
       EXPECT_STR(result, entry->prev_txid, tx.id);
-    }
-
-    {
-      wallet_lns_entry const *entry = entries.array + 1;
-      // TODO(doyle): Need the walle secret key and then libsodium to generate the ed25519 key
-      // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
-      EXPECT_STR(result, entry->type.to_string(), type);
-      EXPECT(result, entry->height == register_height2, "Height didn't match: entry->height=%zu, register_height2=%zu", entry->height, register_height2);
-      EXPECT_STR(result, entry->name.to_string(), name3);
-      EXPECT_STR(result, entry->value.to_string(), value);
-      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
     }
   }
 
@@ -664,7 +642,7 @@ test_result wallet__lns_print_name_to_owners()
   // Wallet1 Buys Mapping
   loki_string const type      = LOKI_STRING("session");
   loki_string const value     = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
-  loki_string const null_hash = LOKI_STRING("0000000000000000000000000000000000000000000000000000000000000000");
+  loki_string const none      = LOKI_STRING("");
   loki_string const name1     = LOKI_STRING("SimpleName");
   {
     itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet, nullptr /*owner*/, nullptr /*backup_owner*/, type, name1, value);
@@ -690,9 +668,9 @@ test_result wallet__lns_print_name_to_owners()
       // EXPECT_STR(result, entry->owner.to_string(), custom_owner);
       EXPECT_STR(result, entry->type.to_string(), type);
       EXPECT(result, entry->height == height1, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, height1);
-      EXPECT_STR(result, entry->name.to_string(), name1);
-      EXPECT_STR(result, entry->value.to_string(), value);
-      EXPECT_STR(result, entry->prev_txid.to_string(), null_hash);
+      // EXPECT_STR(result, entry->name.to_string(), name1);
+      // EXPECT_STR(result, entry->value.to_string(), value);
+      EXPECT_STR(result, entry->prev_txid.to_string(), none);
     }
   }
 
@@ -795,12 +773,12 @@ test_result wallet__lns_update_mapping__session_multiple_owners()
   loki_string name  = LOKI_STRING("MySessionName");
   loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
 
-  loki_hash64 owner_fstr = {}, backup_owner_fstr = {};
-  wallet_spendkey(wallet1, &owner_fstr);
-  wallet_spendkey(wallet2, &backup_owner_fstr);
+  loki_addr owner_addr, backup_owner_addr;
+  wallet_address_index(wallet1, 0, &owner_addr);
+  wallet_address_index(wallet2, 0, &backup_owner_addr);
 
-  loki_string owner        = owner_fstr.to_string();
-  loki_string backup_owner = backup_owner_fstr.to_string();
+  loki_string owner        = owner_addr.buf.to_string();
+  loki_string backup_owner = backup_owner_addr.buf.to_string();
   {
     itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet1, &owner, &backup_owner, type, name, value);
     EXPECT_IPC_RESULT_MSG(result,
@@ -819,7 +797,7 @@ test_result wallet__lns_update_mapping__session_multiple_owners()
     itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, &new_value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/);
     EXPECT_IPC_RESULT_MSG(result,
                           ipc_return,
-                          "Owner 1 failedd to update Session mapping new_value=%.*s, name=%.*s",
+                          "Owner 1 failed to update Session mapping new_value=%.*s, name=%.*s",
                           new_value.len,
                           new_value.str,
                           name.len,
@@ -861,12 +839,12 @@ test_result wallet__lns_update_mapping__session_multiple_owners()
 
   // NOTE: Owner 1 updates the owner and backup owner to wallet 3 and 4 respectively
   {
-    loki_hash64 new_owner_fstr = {}, new_backup_owner_fstr = {};
-    wallet_spendkey(wallet3, &new_owner_fstr);
-    wallet_spendkey(wallet4, &new_backup_owner_fstr);
+    loki_addr new_owner_addr = {}, new_backup_owner_addr = {};
+    wallet_address_index(wallet3, 0, &new_owner_addr);
+    wallet_address_index(wallet4, 0, &new_backup_owner_addr);
 
-    loki_string new_owner        = new_owner_fstr.to_string();
-    loki_string new_backup_owner = new_backup_owner_fstr.to_string();
+    loki_string new_owner        = new_owner_addr.buf.to_string();
+    loki_string new_backup_owner = new_backup_owner_addr.buf.to_string();
     itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, nullptr /*value*/, &new_owner /*owner*/, &new_backup_owner /*backup_owner*/, nullptr /*signature*/);
     EXPECT_IPC_RESULT_MSG(result, ipc_return, "Owner 1 failed to update Session mapping to have 2 new owners");
     daemon_mine_n_blocks(daemon, wallet1, 1);
@@ -893,6 +871,228 @@ test_result wallet__lns_update_mapping__session_multiple_owners()
     EXPECT_IPC_RESULT_MSG(result, !ipc_return, "Owner 1 tries to update mapping but doesnt specify any field to update so it should fail");
   }
 
+  return result;
+}
+
+test_result wallet__lns_update_mapping__session_subaddress_owners()
+{
+  test_result result = {};
+  INITIALISE_TEST_CONTEXT(result);
+
+  start_daemon_params daemon_params = {};
+  daemon_params.load_latest_hardfork_versions();
+
+  helper_blockchain_environment environment = helper_setup_blockchain(&result, daemon_params, 0/*num_service_nodes*/, 1/*num_daemons*/, 2/*num_wallets*/, 100 /*wallet_balance*/);
+  LOKI_DEFER { helper_cleanup_blockchain_environment(&environment); };
+  daemon_t *daemon  = &environment.daemons[0];
+
+  // -----------------------------------------------------------------------------------------------
+  //
+  // Wallet1 Buy And Update with subaddress using address new
+  //
+  // -----------------------------------------------------------------------------------------------
+  {
+    wallet_t *wallet1 = &environment.wallets[0];
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet1 setups a subaddress using account new
+    //
+    // -----------------------------------------------------------------------------------------------
+    loki_addr wallet1_account0_addr0 = {};
+    loki_addr wallet1_account1_addr0 = {};
+    wallet_address_index(wallet1, 0, &wallet1_account0_addr0);
+
+    wallet_account_new(wallet1);
+    wallet_address_index(wallet1, 0, &wallet1_account1_addr0);
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet1 transfers money to subaddress
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_account_switch(wallet1, 0);
+    EXPECT(result, wallet1_account0_addr0.buf != wallet1_account1_addr0.buf, "The subaddress and the main address are the same?");
+    EXPECT(result, wallet_transfer(wallet1, &wallet1_account1_addr0, 50, nullptr /*tx*/), "Failed to transfer funds");
+    daemon_mine_n_blocks(daemon, &wallet1_account0_addr0, LOKI_CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE);
+    wallet_account_switch(wallet1, 1);
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet1 buys a LNS record with their subaddress as the owner
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_refresh(wallet1);
+    loki_string type  = LOKI_STRING("session");
+    loki_string name  = LOKI_STRING("MySessionName");
+    {
+      loki_string owner           = wallet1_account1_addr0.buf.to_string();
+      loki_string value           = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+      itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet1, &owner /*owner*/, nullptr /*backup_owner*/, type, name, value);
+      EXPECT_IPC_RESULT(result, ipc_return);
+      daemon_mine_n_blocks(daemon, wallet1, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet1 updates the LNS record with new value, their subaddress is the
+    // owner. We switch back to our main account, as the wallet should
+    // automatically detect that the owner is from my subaddress and use the right
+    // secret keys to create the
+    // signature.
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_refresh(wallet1);
+    wallet_account_switch(wallet1, 0);
+    loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fc");
+    {
+      itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet1, type, name, &value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/, nullptr /*tx*/);
+      EXPECT_IPC_RESULT(result, ipc_return);
+      daemon_mine_n_blocks(daemon, wallet1, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 switches to account 1. We only query ownership by subaddress
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_account_switch(wallet1, 1);
+    {
+      wallet_lns_entries lns_entries = wallet_lns_print_owners_to_name(wallet1);
+      EXPECT(result, lns_entries.array_len == 1, "Expected one LNS entry");
+      {
+        wallet_lns_entry const *entry = lns_entries.array + 0;
+        EXPECT_STR(result, entry->owner.to_string(), wallet1_account1_addr0.buf.to_string());
+        EXPECT_STR(result, entry->type.to_string(), type);
+        // TODO(doyle): EXPECT    (result, entry->height == register_height, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, register_height);
+        EXPECT    (result, entry->name_hash.len > 0, "String should not be empty");
+        EXPECT_STR_MSG(result, entry->value.str, "", "Value is not returned when querying by owners");
+        EXPECT    (result, entry->encrypted_value.len > 0, "String should not be empty ");
+        // TODO(doyle): EXPECT_STR(result, entry->prev_txid.to_string(), none);
+      }
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 switches to account 1. We only query ownership by subaddress
+    //
+    // -----------------------------------------------------------------------------------------------
+    {
+      wallet_lns_entries lns_entries = wallet_lns_print_name_to_owner(wallet1, &type, name);
+      EXPECT(result, lns_entries.array_len == 1, "Expected one LNS entry");
+      {
+        wallet_lns_entry const *entry = lns_entries.array + 0;
+        EXPECT_STR(result, entry->owner.to_string(), wallet1_account1_addr0.buf.to_string());
+        EXPECT_STR(result, entry->type.to_string(), type);
+        // TODO(doyle): EXPECT    (result, entry->height == register_height, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, register_height);
+        EXPECT        (result, entry->name_hash.len > 0, "String should not be empty");
+        EXPECT_STR_MSG(result, entry->value.str, value.str, "Value is returned decrypted when querying by owners");
+        EXPECT        (result, entry->encrypted_value.len > 0, "String should not be empty ");
+        // TODO(doyle): EXPECT_STR(result, entry->prev_txid.to_string(), none);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  //
+  // Wallet2 Buy And Update with subaddress using address new
+  //
+  // -----------------------------------------------------------------------------------------------
+  {
+    wallet_t *wallet2 = &environment.wallets[1];
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 setups a subaddress using account new then address new
+    //
+    // -----------------------------------------------------------------------------------------------
+    loki_addr wallet2_account0_addr0 = {};
+    loki_addr wallet2_account1_addr0 = {};
+    loki_addr wallet2_account1_addr1 = {};
+    wallet_address_index(wallet2, 0, &wallet2_account0_addr0);
+
+    wallet_account_new(wallet2);
+    wallet_address_index(wallet2, 0, &wallet2_account1_addr0);
+    wallet_address_new(wallet2, &wallet2_account1_addr1);
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 transfers money to subaddress
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_account_switch(wallet2, 0);
+    EXPECT(result, wallet2_account0_addr0.buf != wallet2_account1_addr0.buf, "The subaddress and the main address are the same?");
+    EXPECT(result, wallet_transfer(wallet2, &wallet2_account1_addr0, 50, nullptr /*tx*/), "Failed to transfer funds");
+    daemon_mine_n_blocks(daemon, &wallet2_account0_addr0, LOKI_CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE);
+    wallet_account_switch(wallet2, 1);
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 buys a LNS record with their subaccount-subaddress as the owner
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_refresh(wallet2);
+    loki_string type  = LOKI_STRING("session");
+    loki_string name  = LOKI_STRING("MySessionName1");
+    {
+      loki_string owner           = wallet2_account1_addr1.buf.to_string();
+      loki_string value           = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fa");
+      itest_ipc_result ipc_return = wallet_lns_buy_mapping(wallet2, &owner /*owner*/, nullptr /*backup_owner*/, type, name, value);
+      EXPECT_IPC_RESULT(result, ipc_return);
+      daemon_mine_n_blocks(daemon, wallet2, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 updates the LNS record with new value, their
+    // subaccount-subaddress is the owner. We switch back to our main account,
+    // as the wallet should automatically detect that the owner is from my
+    // subaccount-subaddress and use the right secret keys to create the signature.
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_refresh(wallet2);
+    wallet_account_switch(wallet2, 0);
+    loki_string value = LOKI_STRING("052618717bab2fa1186b09c19249d42e50f98f89f994bac3dd6787a8d8c799a8fc");
+    {
+      itest_ipc_result ipc_return = wallet_lns_update_mapping(wallet2, type, name, &value, nullptr /*owner*/, nullptr /*backup_owner*/, nullptr /*signature*/, nullptr /*tx*/);
+      EXPECT_IPC_RESULT(result, ipc_return);
+      daemon_mine_n_blocks(daemon, wallet2, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------------
+    //
+    // Wallet2 switches to account 1. We only query ownership by subaddress
+    //
+    // -----------------------------------------------------------------------------------------------
+    wallet_account_switch(wallet2, 1);
+    {
+      wallet_lns_entries lns_entries = wallet_lns_print_owners_to_name(wallet2);
+      EXPECT(result, lns_entries.array_len == 1, "Expected one LNS entry");
+      {
+        wallet_lns_entry const *entry = lns_entries.array + 0;
+        EXPECT_STR(result, entry->owner.to_string(), wallet2_account1_addr1.buf.to_string());
+        EXPECT_STR(result, entry->type.to_string(), type);
+        // TODO(doyle): EXPECT    (result, entry->height == register_height, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, register_height);
+        EXPECT    (result, entry->name_hash.len > 0, "String should not be empty");
+        EXPECT_STR_MSG(result, entry->value.str, "", "Value is not returned when querying by owners");
+        EXPECT    (result, entry->encrypted_value.len > 0, "String should not be empty ");
+        // TODO(doyle): EXPECT_STR(result, entry->prev_txid.to_string(), none);
+      }
+    }
+
+    {
+      wallet_lns_entries lns_entries = wallet_lns_print_name_to_owner(wallet2, &type, name);
+      EXPECT(result, lns_entries.array_len == 1, "Expected one LNS entry");
+      {
+        wallet_lns_entry const *entry = lns_entries.array + 0;
+        EXPECT_STR(result, entry->owner.to_string(), wallet2_account1_addr1.buf.to_string());
+        EXPECT_STR(result, entry->type.to_string(), type);
+        // TODO(doyle): EXPECT    (result, entry->height == register_height, "Height didn't match: entry->height=%zu, height1=%zu", entry->height, register_height);
+        EXPECT        (result, entry->name_hash.len > 0, "String should not be empty");
+        EXPECT_STR_MSG(result, entry->value.str, value.str, "Value is returned decrypted when querying by owners");
+        EXPECT        (result, entry->encrypted_value.len > 0, "String should not be empty ");
+        // TODO(doyle): EXPECT_STR(result, entry->prev_txid.to_string(), none);
+      }
+    }
+  }
   return result;
 }
 
@@ -1035,7 +1235,7 @@ test_result daemon__checkpointing__new_peer_syncs_checkpoints()
   {
     daemon_prepare_registration_params register_params                    = {};
     register_params.contributors[register_params.num_contributors].amount = LOKI_FAKENET_STAKING_REQUIREMENT;
-    wallet_address(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
+    wallet_address_index(&wallet, 0, &register_params.contributors[register_params.num_contributors++].addr);
 
     LOKI_FOR_ITERATOR(daemon, daemons, NUM_SERVICE_NODES) // Register each daemon on the network
     {
@@ -1536,7 +1736,7 @@ test_result wallet__print_locked_stakes__check_shows_locked_stakes()
 
   loki_addr my_addr = {};
   daemon_mine_n_blocks(&daemon, &wallet, 100);
-  EXPECT(result, wallet_address(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+  EXPECT(result, wallet_address_index(&wallet, 0, &my_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
 
   // Register the service node
   uint64_t const half_stake_requirement = LOKI_FAKENET_STAKING_REQUIREMENT / 2;
@@ -1604,7 +1804,7 @@ test_result wallet__register_service_node__allow_4_stakers()
     wallet_t *staker = stakers + i;
 
     wallet_set_default_testing_settings(staker);
-    wallet_address(staker, 0, stakers_addr + i);
+    wallet_address_index(staker, 0, stakers_addr + i);
     daemon_mine_n_blocks(&daemon, staker, 2);
   }
 
@@ -1672,7 +1872,7 @@ test_result wallet__register_service_node__allow_70_20_and_10_open_for_contribut
     wallet_t *staker = stakers + i;
 
     wallet_set_default_testing_settings(staker);
-    wallet_address(staker, 0, stakers_addr + i);
+    wallet_address_index(staker, 0, stakers_addr + i);
     daemon_mine_n_blocks(&daemon, staker, 2);
   }
 
@@ -1750,13 +1950,13 @@ test_result wallet__register_service_node__allow_43_23_13_21_reserved_contributi
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
       wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
-      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
+      EXPECT(result, wallet_address_index(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
     dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
-    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
+    EXPECT(result, wallet_address_index(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
       daemon_mine_n_blocks(&daemon, wallets + i, 5);
@@ -1869,13 +2069,13 @@ test_result wallet__register_service_node__allow_87_13_reserved_contribution()
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
       wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
-      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "failed to query wallet: %d's primary address", (int)i);
+      EXPECT(result, wallet_address_index(wallets + i, 0, wallet_addrs + i), "failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
     dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
-    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "failed to get the 0th subaddress, i.e the main address of wallet");
+    EXPECT(result, wallet_address_index(&dummy_wallet, 0, &dummy_addr),  "failed to get the 0th subaddress, i.e the main address of wallet");
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
       daemon_mine_n_blocks(&daemon, wallets + i, 5);
@@ -1963,13 +2163,13 @@ test_result wallet__register_service_node__allow_87_13_contribution()
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
       wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
-      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "failed to query wallet: %d's primary address", (int)i);
+      EXPECT(result, wallet_address_index(wallets + i, 0, wallet_addrs + i), "failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
     dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
-    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "failed to get the 0th subaddress, i.e the main address of wallet");
+    EXPECT(result, wallet_address_index(&dummy_wallet, 0, &dummy_addr),  "failed to get the 0th subaddress, i.e the main address of wallet");
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
       daemon_mine_n_blocks(&daemon, wallets + i, 5);
@@ -2041,7 +2241,7 @@ test_result wallet__register_service_node__disallow_register_twice()
   // Mine enough funds for a registration
   loki_addr my_addr = {};
   {
-    wallet_address(&wallet, 0, &my_addr);
+    wallet_address_index(&wallet, 0, &my_addr);
     daemon_mine_until_height(&daemon, &wallet, 200);
   }
 
@@ -2144,13 +2344,13 @@ test_result wallet__request_stake_unlock__check_pooled_stake_unlocked()
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
       wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
-      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
+      EXPECT(result, wallet_address_index(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
     dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
-    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
+    EXPECT(result, wallet_address_index(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
       daemon_mine_n_blocks(&daemon, wallets + i, 5);
@@ -2276,8 +2476,8 @@ test_result wallet__request_stake_unlock__check_unlock_height()
   daemon_mine_n_blocks(&daemon, &wallet, 100);
 
   loki_addr wallet_addr, dummy_addr = {};
-  EXPECT(result, wallet_address(&wallet,       0, &wallet_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
-  EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
+  EXPECT(result, wallet_address_index(&wallet,       0, &wallet_addr), "Failed to get the 0th subaddress, i.e the main address of wallet");
+  EXPECT(result, wallet_address_index(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
   // Register the service node
   loki_snode_key snode_key = {};
@@ -2365,7 +2565,7 @@ test_result wallet__request_stake_unlock__disallow_request_twice()
   {
     daemon_prepare_registration_params params           = {};
     params.contributors[params.num_contributors].amount = FAKECHAIN_STAKING_REQUIREMENT;
-    wallet_address(&wallet, 0, &params.contributors[params.num_contributors++].addr);
+    wallet_address_index(&wallet, 0, &params.contributors[params.num_contributors++].addr);
 
     loki_fixed_string<> cmd = {};
     EXPECT(result, daemon_prepare_registration (&daemon, &params, &cmd), "Failed to prepare registration");
@@ -2460,13 +2660,13 @@ test_result wallet__stake__check_incremental_stakes_decreasing_min_contribution(
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
     {
       wallets[i] = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
-      EXPECT(result, wallet_address(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
+      EXPECT(result, wallet_address_index(wallets + i, 0, wallet_addrs + i), "Failed to query wallet: %d's primary address", (int)i);
       wallet_set_default_testing_settings(wallets + i);
     }
 
     dummy_wallet = create_and_start_wallet(daemon_params.nettype, wallet_params, result.name.str);
     wallet_set_default_testing_settings(&dummy_wallet);
-    EXPECT(result, wallet_address(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
+    EXPECT(result, wallet_address_index(&dummy_wallet, 0, &dummy_addr),  "Failed to get the 0th subaddress, i.e the main address of wallet");
 
     LOKI_FOR_EACH(i, LOKI_ARRAY_COUNT(wallets))
       daemon_mine_n_blocks(&daemon, wallets + i, 5);
@@ -2630,7 +2830,7 @@ test_result wallet__stake__disallow_staking_less_than_minimum_in_pooled_node()
     wallet_t *staker                  = stakers + i;
 
     wallet_set_default_testing_settings(staker);
-    wallet_address(staker, 0, stakers_addr + i);
+    wallet_address_index(staker, 0, stakers_addr + i);
     daemon_mine_n_blocks(&daemon, staker, 10);
   }
 
@@ -2700,7 +2900,7 @@ test_result wallet__stake__disallow_staking_when_all_amounts_reserved()
     wallet_t *staker                  = stakers + i;
 
     wallet_set_default_testing_settings(staker);
-    wallet_address(staker, 0, stakers_addr + i);
+    wallet_address_index(staker, 0, stakers_addr + i);
     daemon_mine_n_blocks(&daemon, staker, 10);
   }
 
@@ -2775,8 +2975,8 @@ test_result wallet__transfer__check_fee_amount_80x_increase()
   daemon_mine_n_blocks(&daemon, &src_wallet, 100);
 
   loki_addr src_addr = {}, dest_addr = {};
-  LOKI_ASSERT(wallet_address(&src_wallet, 0,  &src_addr));
-  LOKI_ASSERT(wallet_address(&dest_wallet, 0, &dest_addr));
+  LOKI_ASSERT(wallet_address_index(&src_wallet, 0,  &src_addr));
+  LOKI_ASSERT(wallet_address_index(&dest_wallet, 0, &dest_addr));
   int64_t const epsilon = 1000000;
 
   // Transfer from wallet to dest
@@ -2826,8 +3026,8 @@ test_result v11__wallet__transfer__check_fee_amount_bulletproofs()
   daemon_mine_n_blocks(&daemon, &src_wallet, 100);
 
   loki_addr src_addr = {}, dest_addr = {};
-  EXPECT_IPC_RESULT(result, wallet_address(&src_wallet, 0,  &src_addr));
-  EXPECT_IPC_RESULT(result, wallet_address(&dest_wallet, 0, &dest_addr));
+  EXPECT(result, wallet_address_index(&src_wallet, 0,  &src_addr), "Failed to query wallet address");
+  EXPECT(result, wallet_address_index(&dest_wallet, 0, &dest_addr), "Failed to query wallet address");
 
   int64_t const fee_estimate = 2170050;
   int64_t const epsilon      = 1000000;

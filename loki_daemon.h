@@ -11,8 +11,7 @@ struct daemon_prepare_registration_params
   bool             open_pool;
   int              owner_fee_percent;
   int              num_contributors;
-  loki_contributor contributors[4];
-};
+  loki_contributor contributors[4]; };
 
 struct daemon_status_t
 {

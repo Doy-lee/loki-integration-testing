@@ -462,7 +462,7 @@ bool daemon_print_block(daemon_t *daemon, uint64_t height, loki_hash64 *block_ha
 bool daemon_mine_n_blocks(daemon_t *daemon, wallet_t *wallet, int num_blocks)
 {
   loki_addr addr = {};
-  bool result    = wallet_address(wallet, 0, &addr);
+  bool result    = wallet_address_index(wallet, 0, &addr);
   if (result)
   {
     daemon_mine_n_blocks(daemon, &addr, num_blocks);
@@ -497,7 +497,7 @@ void daemon_mine_until_height(daemon_t *daemon, loki_addr const *addr, uint64_t 
 bool daemon_mine_until_height(daemon_t *daemon, wallet_t *wallet, uint64_t desired_height)
 {
   loki_addr addr = {};
-  bool result    = wallet_address(wallet, 0, &addr);
+  bool result    = wallet_address_index(wallet, 0, &addr);
   if (result)
   {
     daemon_mine_until_height(daemon, &addr, desired_height);
